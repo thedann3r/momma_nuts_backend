@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_restful import Resource, Api
-from models import db, Users, Products, Orders, Payments, OrderItems
+from models import db, Users, Products, Orders, Payments, OrderItems, Cart
 from datetime import datetime, timedelta
 # from werkzeug.security import check_password_hash
 from flask_bcrypt import Bcrypt
@@ -277,77 +277,8 @@ class Order(Resource):
                 'items': [{'product_id': item.product_id, 'quantity': item.quantity} for item in order_items]
             }
         }, 201
-
-
-class Order(Resource):
-    @jwt_required()
-    def post(self):
-        current_user = get_jwt_identity()
-
-        # Ensure the user is logged in
-        if not current_user:
-            return {'error': 'Unauthorized. Please log in to place an order.'}, 401
-
-        data = request.get_json()
-        if not data or 'items' not in data:
-            return {'error': 'Missing required fields!'}, 422
-
-        items = data['items']
-        if not isinstance(items, list) or len(items) == 0:
-            return {'error': 'At least one product must be included in the order.'}, 400
-
-        total_price = 0
-        order_items = []
-
-        # Check product availability and calculate total price
-        for item in items:
-            product_id = item.get('product_id')
-            quantity = item.get('quantity')
-
-            if not product_id or not quantity:
-                return {'error': 'Each item must include product_id and quantity'}, 400
-
-            if quantity <= 0:
-                return {'error': 'Quantity must be at least 1'}, 400
-
-            product = Products.query.get(product_id)
-            if not product:
-                return {'error': f'Product with ID {product_id} not found'}, 404
-
-            if product.stock < quantity:
-                return {'error': f'Insufficient stock for product {product.name}'}, 400
-
-            total_price += product.price * quantity
-            product.stock -= quantity  # Reduce stock
-
-            order_items.append(OrderItems(product_id=product_id, quantity=quantity))
-
-        # Create new order
-        new_order = Orders(
-            user_id=current_user['id'],
-            total_price=total_price
-        )
-        db.session.add(new_order)
-        db.session.commit()  # Save order to get its ID
-
-        # Assign order ID to order items and save them
-        for order_item in order_items:
-            order_item.order_id = new_order.id
-            db.session.add(order_item)
-
-        db.session.commit()
-
-        return {
-            'message': 'Order placed successfully',
-            'order': {
-                'id': new_order.id,
-                'user_id': new_order.user_id,
-                'total_price': new_order.total_price,
-                'status': new_order.status,
-                'items': [{'product_id': item.product_id, 'quantity': item.quantity} for item in order_items]
-            }
-        }, 201
     
+class OrderResource(Resource):
     @jwt_required()
     def patch(self, order_id):
         current_user = get_jwt_identity()
@@ -450,13 +381,8 @@ class Payment(Resource):
             return {'message': 'No payments found'}, 404
 
         return [payment.to_dict() for payment in payments], 200
-    
-from flask import request
-from flask_restful import Resource
-from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import db, Cart, Products
 
-class Cart(Resource):
+class Carts(Resource):
     @jwt_required()
     def post(self):
         current_user = get_jwt_identity()
@@ -500,6 +426,7 @@ class Cart(Resource):
 
         return [item.to_dict() for item in cart_items], 200
     
+class CartsResource(Resource):
     @jwt_required()
     def delete(self, cart_id=None):
         current_user = get_jwt_identity()
