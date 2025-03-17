@@ -51,29 +51,38 @@ class User(Resource):
         new_phone = data.get('phone')
         new_password = data.get('new_password')
 
-        if new_name:
-            user.name = new_name
-        if new_email:
-            existing_email = Users.query.filter(Users.email == new_email, Users.id != current_user['id']).first()
-            if existing_email:
-                return {'error': 'Email already in use'}, 400
-            user.email = new_email
-        if new_phone:
-            existing_phone = Users.query.filter(Users.phone == new_phone, Users.id != current_user['id']).first()
-            if existing_phone:
-                return {'error': 'Phone number already in use'}, 400
-            user.phone = new_phone
+        try:
+            if new_name and new_name.strip():
+                user.name = new_name.strip()
 
-        if new_password and new_password.strip():
-            current_password = data.get('current_password')
-            if not current_password:
-                return {'error': 'Current password is required to change password'}, 400
-            if not bcrypt.check_password_hash(user.password, current_password):
-                return {'error': 'Incorrect current password'}, 401
-            user.password = bcrypt.generate_password_hash(new_password).decode('utf-8')
+            if new_email and new_email.strip() and new_email != user.email:
+                existing_email = Users.query.filter(Users.email == new_email, Users.id != user.id).first()
+                if existing_email:
+                    return {'error': 'Email already in use'}, 400
+                user.email = new_email.strip()
 
-        db.session.commit()
-        return {'message': 'Profile updated successfully'}, 200
+            if new_phone and new_phone.strip() and new_phone != user.phone:
+                existing_phone = Users.query.filter(Users.phone == new_phone, Users.id != user.id).first()
+                if existing_phone:
+                    return {'error': 'Phone number already in use'}, 400
+                user.phone = new_phone.strip()
+
+            if new_password and isinstance(new_password, str) and new_password.strip():
+                current_password = data.get('current_password')
+                if not current_password:
+                    return {'error': 'Current password is required to change password'}, 400
+                
+                if not user.password or not bcrypt.check_password_hash(user.password, current_password):
+                    return {'error': 'Incorrect current password'}, 401
+
+                user.password = bcrypt.generate_password_hash(new_password).decode('utf-8')
+
+            db.session.commit()
+            return {'message': 'Profile updated successfully'}, 200
+
+        except Exception as e:
+            db.session.rollback()  # Rollback in case of any error
+            return {'error': f'An error occurred: {str(e)}'}, 500
     
 class Product(Resource):
     def get(self):
@@ -137,23 +146,22 @@ class Product(Resource):
 
         return new_product.to_dict(), 201
     
+class ProductResource(Resource):
     @jwt_required()
-    def patch(self):
+    def patch(self, product_id):
         current_user = get_jwt_identity()
 
         # Ensure only admins can update products
         if current_user['role'] != 'admin':
             return {'error': 'Only admins can update products!'}, 403
 
-        # Get request data
-        data = request.get_json()
-        product_id = data.get('id')  # Expecting product ID in the request body
-        if not product_id:
-            return {'error': 'Product ID is required!'}, 400
-
+        # Find the product
         product = Products.query.get(product_id)
         if not product:
             return {'error': 'Product not found!'}, 404
+
+        # Get request data
+        data = request.get_json()
 
         # Update fields if provided
         if 'name' in data:
@@ -187,19 +195,14 @@ class Product(Resource):
         return {'message': 'Product updated successfully!'}, 200
 
     @jwt_required()
-    def delete(self):
+    def delete(self, product_id):
         current_user = get_jwt_identity()
 
         # Ensure only admins can delete products
         if current_user['role'] != 'admin':
             return {'error': 'Only admins can delete products!'}, 403
 
-        # Get product ID from request body
-        data = request.get_json()
-        product_id = data.get('id')
-        if not product_id:
-            return {'error': 'Product ID is required!'}, 400
-
+        # Find the product
         product = Products.query.get(product_id)
         if not product:
             return {'error': 'Product not found!'}, 404
@@ -208,6 +211,7 @@ class Product(Resource):
         db.session.delete(product)
         db.session.commit()
         return {'message': 'Product deleted successfully!'}, 200
+
 
 class Order(Resource):
     @jwt_required()
@@ -265,6 +269,8 @@ class Order(Resource):
             order_item.order_id = new_order.id
             db.session.add(order_item)
 
+        Cart.query.filter_by(user_id=current_user['id']).delete()
+
         db.session.commit()
 
         return {
@@ -315,7 +321,7 @@ class Payment(Resource):
         current_user = get_jwt_identity()
         data = request.get_json()
 
-        required_fields = {'order_id', 'phone_number', 'amount', 'mpesa_receipt_number'}
+        required_fields = {'order_id', 'phone_number', 'mpesa_receipt_number'}
         if not data or not all(field in data for field in required_fields):
             return {'error': 'Missing required fields!'}, 422
 
@@ -328,23 +334,22 @@ class Payment(Resource):
         if order.user_id != current_user['id']:
             return {'error': 'Unauthorized to make payment for this order'}, 403
 
-        # Ensure the payment amount matches the order total price
-        if order.total_price != data['amount']:
-            return {'error': 'Payment amount does not match order total'}, 400
-
         # Check if order is already paid
         existing_payment = Payments.query.filter_by(order_id=order.id).first()
         if existing_payment:
             return {'error': 'Payment already exists for this order'}, 400
+
+        # ✅ Fix: Use order.total_price instead of user input for amount
+        amount = order.total_price  
 
         # Create a new payment
         new_payment = Payments(
             order_id=order.id,
             user_id=current_user['id'],
             phone_number=data['phone_number'],
-            amount=data['amount'],
+            amount=amount,  # ✅ Secure amount
             mpesa_receipt_number=data['mpesa_receipt_number'],
-            transaction_date=datetime.datetime.utcnow(),
+            transaction_date=datetime.utcnow(),  
             status="Completed"
         )
 
@@ -386,34 +391,56 @@ class Carts(Resource):
     @jwt_required()
     def post(self):
         current_user = get_jwt_identity()
-        data = request.get_json()
+        
+        try:
+            data = request.get_json()
+            if not data:
+                return {'error': 'Invalid request format'}, 400
 
-        product_id = data.get('product_id')
-        quantity = data.get('quantity', 1)  # Default quantity is 1
+            product_id = data.get('product_id')
+            quantity = data.get('quantity', 1)  # Default quantity is 1
 
-        if not product_id:
-            return {'error': 'Product ID is required'}, 400
+            if not product_id:
+                return {'error': 'Product ID is required'}, 400
 
-        product = Products.query.get(product_id)
-        if not product:
-            return {'error': 'Product not found'}, 404
+            # Fetch product and validate availability
+            product = Products.query.get(product_id)
+            if not product:
+                return {'error': 'Product not found'}, 404
 
-        if product.stock < quantity:
-            return {'error': f'Only {product.stock} items available in stock'}, 400
+            if product.stock < quantity:
+                return {'error': f'Only {product.stock} items available in stock'}, 400
 
-        # Check if item already exists in the cart
-        cart_item = Cart.query.filter_by(user_id=current_user['id'], product_id=product_id).first()
+            # Check if item is already in the cart
+            cart_item = Cart.query.filter_by(user_id=current_user['id'], product_id=product_id).first()
 
-        if cart_item:
-            cart_item.quantity += quantity
-        else:
-            cart_item = Cart(user_id=current_user['id'], product_id=product_id, quantity=quantity)
-            db.session.add(cart_item)
+            if cart_item:
+                new_quantity = cart_item.quantity + quantity
+                if new_quantity > product.stock:  # Prevent exceeding stock
+                    return {'error': f'Only {product.stock} items available in stock'}, 400
+                cart_item.quantity = new_quantity
+            else:
+                cart_item = Cart(user_id=current_user['id'], product_id=product_id, quantity=quantity)
+                db.session.add(cart_item)
 
-        db.session.commit()
+            # Reduce stock after adding to cart
+            product.stock -= quantity
 
-        return {'message': 'Product added to cart successfully', 'cart_item': cart_item.to_dict()}, 201
-    
+            db.session.commit()
+
+            return {
+                'message': 'Product added to cart successfully',
+                'cart_item': {
+                    'id': cart_item.id,
+                    'product_id': cart_item.product_id,
+                    'quantity': cart_item.quantity
+                }
+            }, 201
+
+        except Exception as e:
+            db.session.rollback()
+            return {'error': 'An error occurred', 'details': str(e)}, 500
+
     @jwt_required()
     def get(self):
         current_user = get_jwt_identity()
@@ -426,26 +453,34 @@ class Carts(Resource):
 
         return [item.to_dict() for item in cart_items], 200
     
+
 class CartsResource(Resource):
     @jwt_required()
     def delete(self, cart_id=None):
         current_user = get_jwt_identity()
 
-        if cart_id:
-            # Delete a specific cart item
+        if cart_id is not None:  # Ensure cart_id is provided
             cart_item = Cart.query.filter_by(id=cart_id, user_id=current_user['id']).first()
             if not cart_item:
                 return {'error': 'Cart item not found'}, 404
 
-            db.session.delete(cart_item)
-            db.session.commit()
-            return {'message': 'Item removed from cart successfully'}, 200
+            try:
+                db.session.delete(cart_item)
+                db.session.commit()
+                return {'message': 'Item removed from cart successfully'}, 200
+            except Exception as e:
+                db.session.rollback()
+                return {'error': 'Failed to remove item', 'details': str(e)}, 500
 
-        else:
-            # Clear the entire cart for the logged-in user
+        # If no cart_id is provided, clear all cart items for the user
+        user_cart_items = Cart.query.filter_by(user_id=current_user['id']).all()
+        if not user_cart_items:
+            return {'message': 'Cart is already empty'}, 200
+
+        try:
             Cart.query.filter_by(user_id=current_user['id']).delete()
             db.session.commit()
             return {'message': 'Cart cleared successfully'}, 200
-
-
-
+        except Exception as e:
+            db.session.rollback()
+            return {'error': 'Failed to clear cart', 'details': str(e)}, 500
