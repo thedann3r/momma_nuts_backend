@@ -450,3 +450,75 @@ class Payment(Resource):
             return {'message': 'No payments found'}, 404
 
         return [payment.to_dict() for payment in payments], 200
+    
+from flask import request
+from flask_restful import Resource
+from flask_jwt_extended import jwt_required, get_jwt_identity
+from models import db, Cart, Products
+
+class Cart(Resource):
+    @jwt_required()
+    def post(self):
+        current_user = get_jwt_identity()
+        data = request.get_json()
+
+        product_id = data.get('product_id')
+        quantity = data.get('quantity', 1)  # Default quantity is 1
+
+        if not product_id:
+            return {'error': 'Product ID is required'}, 400
+
+        product = Products.query.get(product_id)
+        if not product:
+            return {'error': 'Product not found'}, 404
+
+        if product.stock < quantity:
+            return {'error': f'Only {product.stock} items available in stock'}, 400
+
+        # Check if item already exists in the cart
+        cart_item = Cart.query.filter_by(user_id=current_user['id'], product_id=product_id).first()
+
+        if cart_item:
+            cart_item.quantity += quantity
+        else:
+            cart_item = Cart(user_id=current_user['id'], product_id=product_id, quantity=quantity)
+            db.session.add(cart_item)
+
+        db.session.commit()
+
+        return {'message': 'Product added to cart successfully', 'cart_item': cart_item.to_dict()}, 201
+    
+    @jwt_required()
+    def get(self):
+        current_user = get_jwt_identity()
+
+        # Fetch cart items for the logged-in user
+        cart_items = Cart.query.filter_by(user_id=current_user['id']).all()
+
+        if not cart_items:
+            return {'message': 'Your cart is empty'}, 404
+
+        return [item.to_dict() for item in cart_items], 200
+    
+    @jwt_required()
+    def delete(self, cart_id=None):
+        current_user = get_jwt_identity()
+
+        if cart_id:
+            # Delete a specific cart item
+            cart_item = Cart.query.filter_by(id=cart_id, user_id=current_user['id']).first()
+            if not cart_item:
+                return {'error': 'Cart item not found'}, 404
+
+            db.session.delete(cart_item)
+            db.session.commit()
+            return {'message': 'Item removed from cart successfully'}, 200
+
+        else:
+            # Clear the entire cart for the logged-in user
+            Cart.query.filter_by(user_id=current_user['id']).delete()
+            db.session.commit()
+            return {'message': 'Cart cleared successfully'}, 200
+
+
+

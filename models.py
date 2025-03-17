@@ -98,7 +98,7 @@ class Cart(db.Model, SerializerMixin):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     product_id = db.Column(db.Integer, db.ForeignKey('products.id'), nullable=False)
     quantity = db.Column(db.Integer, nullable=False, default=1)
-    added_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    # added_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
 
     #relationships
     user = db.relationship('Users', back_populates='cart_items')
