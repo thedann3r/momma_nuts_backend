@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_restful import Resource, Api
-from models import db, Users, Products, Orders, OrderItems
+from models import db, Users, Products, Orders, Payments, OrderItems
 from datetime import datetime, timedelta
 # from werkzeug.security import check_password_hash
 from flask_bcrypt import Bcrypt
@@ -351,26 +351,102 @@ class Order(Resource):
     @jwt_required()
     def patch(self, order_id):
         current_user = get_jwt_identity()
+        
+        # Fetch the order
         order = Orders.query.get(order_id)
-
         if not order:
             return {'error': 'Order not found'}, 404
-
-        # Allow users to cancel only their own pending orders
-        if order.user_id != current_user['id'] and current_user['role'] != 'admin':
-            return {'error': 'Unauthorized to cancel this order'}, 403
-
+        
+        # Only an admin can cancel a completed order
         if order.status == 'completed' and current_user['role'] != 'admin':
             return {'error': 'Only an admin can cancel a completed order'}, 403
-
-        # Restore product stock when order is canceled
+        
+        # Restore product stock
         for item in order.items:
             product = Products.query.get(item.product_id)
             if product:
                 product.stock += item.quantity
 
+        # Mark order as canceled
         order.status = 'canceled'
+        
+        # If the order was completed, update payment status
+        if order.status == 'completed' and order.payment:
+            order.payment.status = "Refund Pending"  # Or "Reversed" if refund is processed instantly
+
         db.session.commit()
 
-        return {'message': 'Order canceled successfully'}, 200
+        return {'message': 'Order canceled successfully, payment status updated'}, 200
 
+class Payment(Resource):
+    @jwt_required()
+    def post(self):
+        current_user = get_jwt_identity()
+        data = request.get_json()
+
+        required_fields = {'order_id', 'phone_number', 'amount', 'mpesa_receipt_number'}
+        if not data or not all(field in data for field in required_fields):
+            return {'error': 'Missing required fields!'}, 422
+
+        order = Orders.query.get(data['order_id'])
+
+        if not order:
+            return {'error': 'Order not found'}, 404
+
+        # Ensure the order belongs to the logged-in user
+        if order.user_id != current_user['id']:
+            return {'error': 'Unauthorized to make payment for this order'}, 403
+
+        # Ensure the payment amount matches the order total price
+        if order.total_price != data['amount']:
+            return {'error': 'Payment amount does not match order total'}, 400
+
+        # Check if order is already paid
+        existing_payment = Payments.query.filter_by(order_id=order.id).first()
+        if existing_payment:
+            return {'error': 'Payment already exists for this order'}, 400
+
+        # Create a new payment
+        new_payment = Payments(
+            order_id=order.id,
+            user_id=current_user['id'],
+            phone_number=data['phone_number'],
+            amount=data['amount'],
+            mpesa_receipt_number=data['mpesa_receipt_number'],
+            transaction_date=datetime.datetime.utcnow(),
+            status="Completed"
+        )
+
+        db.session.add(new_payment)
+
+        # Update order status to completed
+        order.status = "completed"
+        
+        db.session.commit()
+
+        return {
+            'message': 'Payment successful',
+            'payment': {
+                'id': new_payment.id,
+                'order_id': new_payment.order_id,
+                'amount': new_payment.amount,
+                'status': new_payment.status,
+                'transaction_date': new_payment.transaction_date
+            }
+        }, 201
+    
+    @jwt_required()
+    def get(self):
+        current_user = get_jwt_identity()
+
+        if current_user['role'] == 'admin':
+            # Admins can fetch all payments
+            payments = Payments.query.all()
+        else:
+            # Regular users can only fetch their own payments
+            payments = Payments.query.filter_by(user_id=current_user['id']).all()
+
+        if not payments:
+            return {'message': 'No payments found'}, 404
+
+        return [payment.to_dict() for payment in payments], 200
