@@ -278,3 +278,99 @@ class Order(Resource):
             }
         }, 201
 
+
+class Order(Resource):
+    @jwt_required()
+    def post(self):
+        current_user = get_jwt_identity()
+
+        # Ensure the user is logged in
+        if not current_user:
+            return {'error': 'Unauthorized. Please log in to place an order.'}, 401
+
+        data = request.get_json()
+        if not data or 'items' not in data:
+            return {'error': 'Missing required fields!'}, 422
+
+        items = data['items']
+        if not isinstance(items, list) or len(items) == 0:
+            return {'error': 'At least one product must be included in the order.'}, 400
+
+        total_price = 0
+        order_items = []
+
+        # Check product availability and calculate total price
+        for item in items:
+            product_id = item.get('product_id')
+            quantity = item.get('quantity')
+
+            if not product_id or not quantity:
+                return {'error': 'Each item must include product_id and quantity'}, 400
+
+            if quantity <= 0:
+                return {'error': 'Quantity must be at least 1'}, 400
+
+            product = Products.query.get(product_id)
+            if not product:
+                return {'error': f'Product with ID {product_id} not found'}, 404
+
+            if product.stock < quantity:
+                return {'error': f'Insufficient stock for product {product.name}'}, 400
+
+            total_price += product.price * quantity
+            product.stock -= quantity  # Reduce stock
+
+            order_items.append(OrderItems(product_id=product_id, quantity=quantity))
+
+        # Create new order
+        new_order = Orders(
+            user_id=current_user['id'],
+            total_price=total_price
+        )
+        db.session.add(new_order)
+        db.session.commit()  # Save order to get its ID
+
+        # Assign order ID to order items and save them
+        for order_item in order_items:
+            order_item.order_id = new_order.id
+            db.session.add(order_item)
+
+        db.session.commit()
+
+        return {
+            'message': 'Order placed successfully',
+            'order': {
+                'id': new_order.id,
+                'user_id': new_order.user_id,
+                'total_price': new_order.total_price,
+                'status': new_order.status,
+                'items': [{'product_id': item.product_id, 'quantity': item.quantity} for item in order_items]
+            }
+        }, 201
+    
+    @jwt_required()
+    def patch(self, order_id):
+        current_user = get_jwt_identity()
+        order = Orders.query.get(order_id)
+
+        if not order:
+            return {'error': 'Order not found'}, 404
+
+        # Allow users to cancel only their own pending orders
+        if order.user_id != current_user['id'] and current_user['role'] != 'admin':
+            return {'error': 'Unauthorized to cancel this order'}, 403
+
+        if order.status == 'completed' and current_user['role'] != 'admin':
+            return {'error': 'Only an admin can cancel a completed order'}, 403
+
+        # Restore product stock when order is canceled
+        for item in order.items:
+            product = Products.query.get(item.product_id)
+            if product:
+                product.stock += item.quantity
+
+        order.status = 'canceled'
+        db.session.commit()
+
+        return {'message': 'Order canceled successfully'}, 200
+
