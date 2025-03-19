@@ -459,15 +459,20 @@ class CartsResource(Resource):
     def delete(self, cart_id=None):
         current_user = get_jwt_identity()
 
-        if cart_id is not None:  # Ensure cart_id is provided
+        if cart_id is not None:  # Deleting a single cart item
             cart_item = Cart.query.filter_by(id=cart_id, user_id=current_user['id']).first()
             if not cart_item:
                 return {'error': 'Cart item not found'}, 404
 
             try:
+                # Restore the stock in the products table
+                product = Products.query.get(cart_item.product_id)
+                if product:
+                    product.stock += cart_item.quantity  # Add the quantity back
+
                 db.session.delete(cart_item)
                 db.session.commit()
-                return {'message': 'Item removed from cart successfully'}, 200
+                return {'message': 'Item removed from cart successfully, stock updated'}, 200
             except Exception as e:
                 db.session.rollback()
                 return {'error': 'Failed to remove item', 'details': str(e)}, 500
@@ -478,9 +483,76 @@ class CartsResource(Resource):
             return {'message': 'Cart is already empty'}, 200
 
         try:
+            for cart_item in user_cart_items:
+                product = Products.query.get(cart_item.product_id)
+                if product:
+                    product.stock += cart_item.quantity  # Restore stock for each item
+
             Cart.query.filter_by(user_id=current_user['id']).delete()
             db.session.commit()
-            return {'message': 'Cart cleared successfully'}, 200
+            return {'message': 'Cart cleared successfully, stock updated'}, 200
         except Exception as e:
             db.session.rollback()
             return {'error': 'Failed to clear cart', 'details': str(e)}, 500
+
+
+class Checkout(Resource):
+    @jwt_required()
+    def post(self):
+        current_user = get_jwt_identity()
+        user_id = current_user['id']
+
+        cart_items = Cart.query.filter_by(user_id=user_id).all()
+        if not cart_items:
+            return {'error': 'Cart is empty, add items first!'}, 400
+
+        total_price = 0
+        order_items_data = []
+
+        # Create a new Order
+        new_order = Orders(user_id=user_id, total_price=0, status='pending')
+        db.session.add(new_order)
+        db.session.commit()  # Commit to generate order ID
+
+        for cart_item in cart_items:
+            product = Products.query.get(cart_item.product_id)
+
+            if not product:
+                return {'error': f'Product with ID {cart_item.product_id} not found!'}, 404
+
+            if product.stock < cart_item.quantity:
+                return {'error': f'Not enough stock for {product.name}. Available: {product.stock}'}, 400
+
+            # Deduct stock
+            product.stock -= cart_item.quantity
+
+            # Calculate total price
+            item_total = product.price * cart_item.quantity
+            total_price += item_total
+
+            # Create Order Item
+            order_item = OrderItems(
+                order_id=new_order.id,
+                product_id=product.id,
+                quantity=cart_item.quantity,
+                price=product.price
+            )
+            db.session.add(order_item)
+
+            order_items_data.append({
+                'product_id': product.id,
+                'name': product.name,
+                'quantity': cart_item.quantity,
+                'price': product.price
+            })
+
+        # Update order total price
+        new_order.total_price = total_price
+        db.session.commit()
+
+        return {
+            'message': 'Order created successfully, proceed to payment.',
+            'order_id': new_order.id,
+            'total_price': total_price,
+            'order_items': order_items_data
+        }, 201

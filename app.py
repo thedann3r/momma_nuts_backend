@@ -12,7 +12,7 @@ import os
 import re
 from models import db, Users
 from flask_jwt_extended import JWTManager, create_access_token, create_refresh_token, jwt_required, get_jwt_identity
-from resources.crud import User, Product, Order, OrderResource, Carts, Payment, CartsResource, ProductResource
+from resources.crud import User, Product, Order, OrderResource, Carts, Payment, CartsResource, ProductResource, Checkout
 
 load_dotenv()
 
@@ -108,10 +108,10 @@ class Login(Resource):
         password = data.get('password')
 
         if not identifier or not password:
-            return {'error': 'Email/Phone and password are required!'}, 400
+            return {'error': 'Please use either email or Phone number and password!'}, 400
         
         if "@" in identifier and identifier.isdigit():
-            return {'error': 'Enter EITHER email OR phone, not both!'}, 400
+            return {'error': 'Enter either email or phone number, not both!'}, 400
 
         user = Users.query.filter((Users.email == identifier) | (Users.phone == identifier)).first()
 
@@ -132,7 +132,7 @@ class Login(Resource):
                 }
             }, 200
 
-        return {'error': 'Incorrect email/phone or password, please try again!'}, 401
+        return {'error': 'Incorrect email, phone number or password, please try again!'}, 401
 
 class DeleteAcc(Resource):
     @jwt_required()
@@ -142,7 +142,7 @@ class DeleteAcc(Resource):
         role = current.get('role')
 
         data = request.get_json()
-        target_user_id = data.get('user_id') if data else user_id
+        target_user_id = int(data.get('user_id')) if data and 'user_id' in data else user_id
 
         if role != "admin" and target_user_id != user_id:
             return {'error': 'Unauthorized action!'}, 403
@@ -154,7 +154,6 @@ class DeleteAcc(Resource):
         db.session.delete(delete_user)
         db.session.commit()
         return {'message': 'The user was deleted successfully!'}, 200
-
     
 class Refresh(Resource):
     @jwt_required(refresh = True)
@@ -170,12 +169,13 @@ api.add_resource(DeleteAcc, '/delete')
 
 api.add_resource(User, '/users')
 api.add_resource(Product, '/products')
-api.add_resource(ProductResource, "/product/<int:product_id>")
+api.add_resource(ProductResource, "/products/<int:product_id>")
 api.add_resource(Order, '/orders')
 api.add_resource(OrderResource, '/orders/<int:order_id>')
 api.add_resource(Payment, '/payments') 
 api.add_resource(Carts, '/cart') 
 api.add_resource(CartsResource, '/cart', '/cart/<int:cart_id>')
+api.add_resource(Checkout, '/checkout') 
 
 if __name__ == '__main__':
     app.run(debug=True)
