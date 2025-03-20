@@ -592,6 +592,9 @@ class Checkout(Resource):
         new_order.total_price = total_price
         db.session.commit()
 
+        Cart.query.filter_by(user_id=user_id).delete()
+        db.session.commit()
+
         return {
             'message': 'Order created successfully, proceed to payment.',
             'order_id': new_order.id,
