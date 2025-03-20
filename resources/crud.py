@@ -187,7 +187,7 @@ class ProductResource(Resource):
                 stock = int(data['stock'])
                 if stock < 0:
                     return {'error': 'Stock cannot be negative!'}, 400
-                product.stock = stock
+                product.stock += stock  # ✅ Add new stock to current stock
             except ValueError:
                 return {'error': 'Stock must be an integer!'}, 400
 
@@ -218,7 +218,6 @@ class Order(Resource):
     def post(self):
         current_user = get_jwt_identity()
 
-        # Ensure the user is logged in
         if not current_user:
             return {'error': 'Unauthorized. Please log in to place an order.'}, 401
 
@@ -232,8 +231,8 @@ class Order(Resource):
 
         total_price = 0
         order_items = []
+        product_updates = []
 
-        # Check product availability and calculate total price
         for item in items:
             product_id = item.get('product_id')
             quantity = item.get('quantity')
@@ -252,25 +251,32 @@ class Order(Resource):
                 return {'error': f'Insufficient stock for product {product.name}'}, 400
 
             total_price += product.price * quantity
-            product.stock -= quantity  # Reduce stock
 
-            order_items.append(OrderItems(product_id=product_id, quantity=quantity))
+            order_items.append(OrderItems(product_id=product_id, quantity=quantity, order_id=None))  
+            product_updates.append((product, quantity))  # Store product updates
 
         # Create new order
         new_order = Orders(
             user_id=current_user['id'],
-            total_price=total_price
+            total_price=total_price,
+            status="pending"
         )
         db.session.add(new_order)
-        db.session.commit()  # Save order to get its ID
+        db.session.commit()  # Ensure order_id is generated
 
         # Assign order ID to order items and save them
         for order_item in order_items:
             order_item.order_id = new_order.id
             db.session.add(order_item)
 
-        Cart.query.filter_by(user_id=current_user['id']).delete()
+        # Deduct stock after order is confirmed
+        for product, quantity in product_updates:
+            product.stock -= quantity
 
+        db.session.commit()  # Commit all changes
+
+        # Clear cart after successful order creation
+        Cart.query.filter_by(user_id=current_user['id']).delete()
         db.session.commit()
 
         return {
@@ -283,8 +289,44 @@ class Order(Resource):
                 'items': [{'product_id': item.product_id, 'quantity': item.quantity} for item in order_items]
             }
         }, 201
+
     
 class OrderResource(Resource):
+    @jwt_required()
+    def get(self, order_id=None):
+        current_user = get_jwt_identity()
+
+        # Admin can view all orders
+        if current_user['role'] == 'admin':
+            if order_id:
+                order = Orders.query.get(order_id)
+                if not order:
+                    return {'error': 'Order not found'}, 404
+                return self.serialize_order(order), 200
+            else:
+                orders = Orders.query.all()
+                return [self.serialize_order(order) for order in orders], 200
+
+        # Regular users can only view their own orders
+        else:
+            if order_id:
+                order = Orders.query.filter_by(id=order_id, user_id=current_user['id']).first()
+                if not order:
+                    return {'error': 'Order not found'}, 404
+                return self.serialize_order(order), 200
+            else:
+                orders = Orders.query.filter_by(user_id=current_user['id']).all()
+                return [self.serialize_order(order) for order in orders], 200
+
+    def serialize_order(self, order):
+        return {
+            'id': order.id,
+            'user_id': order.user_id,
+            'total_price': order.total_price,
+            'status': order.status,
+            'items': [{'product_id': item.product_id, 'quantity': item.quantity} for item in order.items]
+        }
+
     @jwt_required()
     def patch(self, order_id):
         current_user = get_jwt_identity()
@@ -424,7 +466,7 @@ class Carts(Resource):
                 db.session.add(cart_item)
 
             # Reduce stock after adding to cart
-            product.stock -= quantity
+            # product.stock -= quantity
 
             db.session.commit()
 
