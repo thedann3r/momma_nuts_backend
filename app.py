@@ -10,7 +10,7 @@ import base64
 import json
 import os
 import re
-from models import db, Users
+from models import db, Orders, Payments, Users
 from flask_jwt_extended import JWTManager, create_access_token, create_refresh_token, jwt_required, get_jwt_identity
 from resources.crud import User, Product, Order, OrderResource, Carts, Payment, CartsResource, ProductResource, Checkout
 
@@ -33,6 +33,123 @@ CORS(app, supports_credentials=True)
 api = Api(app)
 bcrypt = Bcrypt(app)
 jwt = JWTManager(app)
+
+# mpesa integration
+
+consumer_key = os.getenv('CONSUMER_KEY')
+consumer_secret = os.getenv('CONSUMER_SECRET')
+shortcode = os.getenv('SHORTCODE')
+passkey = os.getenv('PASSKEY')
+callback_url = "https://0e87-197-248-19-111.ngrok-free.app/mpesa/callback"
+
+@app.route('/mpesa/pay', methods=['POST'])
+def mpesa_pay():
+    phone_number = request.json.get('phone_number')
+    amount = request.json.get('amount')
+    order_id = request.json.get('order_id')  # Get order ID from request
+
+    if not order_id:
+        return jsonify({'error': 'Order ID is required'}), 400
+
+    access_token = get_access_token()
+    if not access_token:
+        return jsonify({'error': 'Failed to get Mpesa access token!'}), 500
+
+    timestamp = get_timestamp()
+    password = generate_password(shortcode, passkey, timestamp)
+
+    payload = {
+        "BusinessShortCode": shortcode,
+        "Password": password,
+        "Timestamp": timestamp,
+        "TransactionType": "CustomerPayBillOnline",
+        "Amount": amount,
+        "PartyA": phone_number,
+        "PartyB": shortcode,
+        "PhoneNumber": phone_number,
+        "CallBackURL": callback_url,
+        "AccountReference": str(order_id),  # Store order_id in reference
+        "TransactionDesc": "Payment for Order #" + str(order_id)
+    }
+
+    stk_push_url = "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
+    response = requests.post(stk_push_url, json=payload, headers={'Authorization': f'Bearer {access_token}', 'Content-Type': 'application/json'})
+
+    if response.status_code == 200:
+        # Store payment in DB (optional)
+        payment = Payments(order_id=order_id, phone_number=phone_number, amount=amount, status="pending")
+        db.session.add(payment)
+        db.session.commit()
+        return jsonify({'message': 'STK push initiated successfully', "data": response.json()}), 200
+
+    return jsonify({'error': 'Failed to initiate STK push', 'data': response.json()}), 500
+    
+@app.route('/mpesa/callback', methods=['POST'])
+def mpesa_callback():
+    data = request.get_json()
+
+    try:
+        result_code = data['Body']['stkCallback']['ResultCode']
+        result_desc = data['Body']['stkCallback']['ResultDesc']
+        checkout_request_id = data['Body']['stkCallback']['CheckoutRequestID']  # This is what we use to track payments
+
+        if result_code == 0:  # ✅ Payment was successful
+            callback_metadata = data['Body']['stkCallback']['CallbackMetadata']['Item']
+            amount = next(item['Value'] for item in callback_metadata if item['Name'] == 'Amount')
+            mpesa_receipt_number = next(item['Value'] for item in callback_metadata if item['Name'] == 'MpesaReceiptNumber')
+            phone_number = next(item['Value'] for item in callback_metadata if item['Name'] == 'PhoneNumber')
+
+            # ✅ Find payment using checkout_request_id
+            payment = Payments.query.filter_by(checkout_request_id=checkout_request_id).first()
+            if not payment:
+                return jsonify({'error': 'Payment record not found'}), 404
+
+            # ✅ Find the associated order
+            order = Orders.query.get(payment.order_id)
+            if not order:
+                return jsonify({'error': 'Order not found'}), 404
+
+            # ✅ Update payment details
+            payment.status = "Completed"
+            payment.mpesa_receipt_number = mpesa_receipt_number
+            payment.transaction_date = datetime.datetime.utcnow()
+            db.session.commit()
+
+            # ✅ Mark order as completed
+            order.status = "completed"
+            db.session.commit()
+
+            return jsonify({
+                'message': 'Payment received successfully!',
+                'receipt': mpesa_receipt_number,
+                'amount': amount,
+                'phone': phone_number
+            }), 200
+
+        else:  # ❌ Payment failed
+            payment = Payments.query.filter_by(checkout_request_id=checkout_request_id).first()
+            if payment:
+                payment.status = "Failed"
+                db.session.commit()
+
+            return jsonify({'status': 'Failed', 'message': result_desc}), 400
+
+    except KeyError:
+        return jsonify({'error': 'Invalid callback data'}), 400
+
+    
+def get_access_token():
+    url = 'https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials'
+    response = requests.get(url, auth=(consumer_key, consumer_secret))
+    return response.json().get('access_token') if response.status_code == 200 else None
+
+def generate_password(shortcode, passkey, timestamp):
+    data_to_encode = f'{shortcode}{passkey}{timestamp}'
+    return base64.b64encode(data_to_encode.encode()).decode('utf-8')
+
+def get_timestamp():
+    return datetime.datetime.now().strftime('%Y%m%d%H%M%S')
+
 
 @app.route('/')
 def index():

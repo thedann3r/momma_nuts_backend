@@ -358,76 +358,74 @@ class OrderResource(Resource):
         return {'message': 'Order canceled successfully, payment status updated'}, 200
 
 class Payment(Resource):
-    @jwt_required()
-    def post(self):
-        current_user = get_jwt_identity()
-        data = request.get_json()
+    # @jwt_required()
+    # def post(self):
+    #     current_user = get_jwt_identity()
+    #     data = request.get_json()
 
-        required_fields = {'order_id', 'phone_number', 'mpesa_receipt_number'}
-        if not data or not all(field in data for field in required_fields):
-            return {'error': 'Missing required fields!'}, 422
+    #     required_fields = {'order_id', 'phone_number', 'mpesa_receipt_number'}
+    #     if not data or not all(field in data for field in required_fields):
+    #         return {'error': 'Missing required fields!'}, 422
 
-        order = Orders.query.get(data['order_id'])
+    #     order = Orders.query.get(data['order_id'])
 
-        if not order:
-            return {'error': 'Order not found'}, 404
+    #     if not order:
+    #         return {'error': 'Order not found'}, 404
 
-        # Ensure the order belongs to the logged-in user
-        if order.user_id != current_user['id']:
-            return {'error': 'Unauthorized to make payment for this order'}, 403
+    #     # Ensure the order belongs to the logged-in user
+    #     if order.user_id != current_user['id']:
+    #         return {'error': 'Unauthorized to make payment for this order'}, 403
 
-        # Check if order is already paid
-        existing_payment = Payments.query.filter_by(order_id=order.id).first()
-        if existing_payment:
-            return {'error': 'Payment already exists for this order'}, 400
+    #     # Check if order is already paid
+    #     existing_payment = Payments.query.filter_by(order_id=order.id).first()
+    #     if existing_payment:
+    #         return {'error': 'Payment already exists for this order'}, 400
 
-        # ✅ Fix: Use order.total_price instead of user input for amount
-        amount = order.total_price  
+    #     # ✅ Fix: Use order.total_price instead of user input for amount
+    #     amount = order.total_price  
 
-        # Create a new payment
-        new_payment = Payments(
-            order_id=order.id,
-            user_id=current_user['id'],
-            phone_number=data['phone_number'],
-            amount=amount,  # ✅ Secure amount
-            mpesa_receipt_number=data['mpesa_receipt_number'],
-            transaction_date=datetime.utcnow(),  
-            status="Completed"
-        )
+    #     # Create a new payment
+    #     new_payment = Payments(
+    #         order_id=order.id,
+    #         user_id=current_user['id'],
+    #         phone_number=data['phone_number'],
+    #         amount=amount,  # ✅ Secure amount
+    #         mpesa_receipt_number=data['mpesa_receipt_number'],
+    #         transaction_date=datetime.utcnow(),  
+    #         status="Completed"
+    #     )
 
-        db.session.add(new_payment)
+    #     db.session.add(new_payment)
 
-        # Update order status to completed
-        order.status = "completed"
+    #     # Update order status to completed
+    #     order.status = "completed"
         
-        db.session.commit()
+    #     db.session.commit()
 
-        return {
-            'message': 'Payment successful',
-            'payment': {
-                'id': new_payment.id,
-                'order_id': new_payment.order_id,
-                'amount': new_payment.amount,
-                'status': new_payment.status,
-                'transaction_date': new_payment.transaction_date
-            }
-        }, 201
+    #     return {
+    #         'message': 'Payment successful',
+    #         'payment': {
+    #             'id': new_payment.id,
+    #             'order_id': new_payment.order_id,
+    #             'amount': new_payment.amount,
+    #             'status': new_payment.status,
+    #             'transaction_date': new_payment.transaction_date
+    #         }
+    #     }, 201
     
     @jwt_required()
     def get(self):
         current_user = get_jwt_identity()
 
         if current_user['role'] == 'admin':
-            # Admins can fetch all payments
-            payments = Payments.query.all()
+            payments = Payments.query.all()  # Admins get all payments
         else:
-            # Regular users can only fetch their own payments
             payments = Payments.query.filter_by(user_id=current_user['id']).all()
 
         if not payments:
             return {'message': 'No payments found'}, 404
 
-        return [payment.to_dict() for payment in payments], 200
+        return [payment.serialize() for payment in payments], 200
 
 class Carts(Resource):
     @jwt_required()
@@ -551,10 +549,10 @@ class Checkout(Resource):
         total_price = 0
         order_items_data = []
 
-        # Create a new Order
-        new_order = Orders(user_id=user_id, total_price=0, status='pending')
+        # ✅ 1. Create Order (status defaults to 'pending')
+        new_order = Orders(user_id=user_id, total_price=0)
         db.session.add(new_order)
-        db.session.commit()  # Commit to generate order ID
+        db.session.commit()  # Commit early to get order ID
 
         for cart_item in cart_items:
             product = Products.query.get(cart_item.product_id)
@@ -565,14 +563,14 @@ class Checkout(Resource):
             if product.stock < cart_item.quantity:
                 return {'error': f'Not enough stock for {product.name}. Available: {product.stock}'}, 400
 
-            # Deduct stock
+            # ✅ 2. Deduct stock
             product.stock -= cart_item.quantity
 
-            # Calculate total price
+            # ✅ 3. Calculate total price
             item_total = product.price * cart_item.quantity
             total_price += item_total
 
-            # Create Order Item
+            # ✅ 4. Create Order Item
             order_item = OrderItems(
                 order_id=new_order.id,
                 product_id=product.id,
@@ -588,11 +586,24 @@ class Checkout(Resource):
                 'price': product.price
             })
 
-        # Update order total price
+        # ✅ 5. Update order total price
         new_order.total_price = total_price
-        db.session.commit()
 
+        # ✅ 6. Create Pending Payment Entry
+        new_payment = Payments(
+            order_id=new_order.id,
+            user_id=user_id,
+            phone_number=None,  # Will be updated during payment
+            amount=total_price,
+            status="Pending",  # Ensures we track unpaid orders
+            mpesa_receipt_number=None,
+            transaction_date=datetime.utcnow()
+        )
+        db.session.add(new_payment)
+
+        # ✅ 7. Clear the cart
         Cart.query.filter_by(user_id=user_id).delete()
+
         db.session.commit()
 
         return {
