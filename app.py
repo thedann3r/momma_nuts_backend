@@ -43,13 +43,28 @@ passkey = os.getenv('PASSKEY')
 callback_url = "https://0e87-197-248-19-111.ngrok-free.app/mpesa/callback"
 
 @app.route('/mpesa/pay', methods=['POST'])
+@jwt_required()
 def mpesa_pay():
-    phone_number = request.json.get('phone_number')
-    amount = request.json.get('amount')
-    order_id = request.json.get('order_id')  # Get order ID from request
+    current_user = get_jwt_identity()
+    data = request.get_json()
 
-    if not order_id:
-        return jsonify({'error': 'Order ID is required'}), 400
+    phone_number = data.get('phone_number')
+    order_id = data.get('order_id')
+
+    if not phone_number or not order_id:
+        return jsonify({'error': 'Phone number and Order ID are required'}), 400
+
+    # 🛑 Fetch order & validate
+    order = Orders.query.get(order_id)
+    if not order:
+        return jsonify({'error': 'Order not found'}), 404
+    if order.user_id != current_user['id']:
+        return jsonify({'error': 'Unauthorized to pay for this order'}), 403
+    if order.status == "completed":
+        return jsonify({'error': 'Order is already paid for'}), 400
+
+    # ✅ Use order's total price
+    amount = order.total_price  
 
     access_token = get_access_token()
     if not access_token:
@@ -69,18 +84,32 @@ def mpesa_pay():
         "PhoneNumber": phone_number,
         "CallBackURL": callback_url,
         "AccountReference": str(order_id),  # Store order_id in reference
-        "TransactionDesc": "Payment for Order #" + str(order_id)
+        "TransactionDesc": f"Payment for Order #{order_id}"
     }
 
     stk_push_url = "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
     response = requests.post(stk_push_url, json=payload, headers={'Authorization': f'Bearer {access_token}', 'Content-Type': 'application/json'})
 
     if response.status_code == 200:
-        # Store payment in DB (optional)
-        payment = Payments(order_id=order_id, phone_number=phone_number, amount=amount, status="pending")
-        db.session.add(payment)
+        response_data = response.json()
+        merchant_request_id = response_data.get("MerchantRequestID")
+        checkout_request_id = response_data.get("CheckoutRequestID")
+
+        # ✅ Store payment in DB with tracking IDs
+        new_payment = Payments(
+            order_id=order_id,
+            user_id=current_user['id'],
+            phone_number=phone_number,
+            amount=amount,
+            status="Pending",
+            merchant_request_id=merchant_request_id,
+            checkout_request_id=checkout_request_id
+        )
+
+        db.session.add(new_payment)
         db.session.commit()
-        return jsonify({'message': 'STK push initiated successfully', "data": response.json()}), 200
+
+        return jsonify({'message': 'STK push initiated successfully', "data": response_data}), 200
 
     return jsonify({'error': 'Failed to initiate STK push', 'data': response.json()}), 500
     
