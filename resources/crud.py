@@ -590,16 +590,16 @@ class Checkout(Resource):
         new_order.total_price = total_price
 
         # ✅ 6. Create Pending Payment Entry
-        new_payment = Payments(
-            order_id=new_order.id,
-            user_id=user_id,
-            phone_number=None,  # Will be updated during payment
-            amount=total_price,
-            status="Pending",  # Ensures we track unpaid orders
-            mpesa_receipt_number=None,
-            transaction_date=datetime.utcnow()
-        )
-        db.session.add(new_payment)
+        # new_payment = Payments(
+        #     order_id=new_order.id,
+        #     user_id=user_id,
+        #     phone_number=None,  # Will be updated during payment
+        #     amount=total_price,
+        #     status="Pending",  # Ensures we track unpaid orders
+        #     mpesa_receipt_number=None,
+        #     transaction_date=datetime.utcnow()
+        # )
+        # db.session.add(new_payment)
 
         # ✅ 7. Clear the cart
         Cart.query.filter_by(user_id=user_id).delete()

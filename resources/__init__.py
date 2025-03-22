@@ -36,13 +36,20 @@
     "name":"sesame snuggle",
     "price":350,
     "image":"sesame",
-    "description":"filled wth joy"
-    # "stock":1
+    "description":"filled wth joy",
+    "stock":100
 }
 
 # cart
 
 {
     "product_id": 1,
-    "quantity": 2
+    "quantity": 50
+}
+
+# mpesa
+
+{
+  "phone_number": "254721434194",
+  "order_id": 1
 }

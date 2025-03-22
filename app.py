@@ -48,22 +48,28 @@ def mpesa_pay():
     current_user = get_jwt_identity()
     data = request.get_json()
 
-    phone_number = data.get('phone_number')
-    amount = data.get('amount')
+    print("Received data:", data)
+
+    phone_number = str(data.get('phone_number') or "").strip()
+    if not phone_number:
+        return jsonify({'error': 'Phone number is required'}), 400
     order_id = data.get('order_id')
 
-    if not all([phone_number, amount, order_id]):
-        return jsonify({'error': 'Phone number, amount, and order ID are required'}), 400
+    if not phone_number or not order_id:
+        return jsonify({'error': 'Phone number and Order ID are required'}), 400
 
     # 🛑 Fetch order & validate
-    order = Orders.query.get(order_id)
+    order = db.session.get(Orders, order_id)
     if not order:
         return jsonify({'error': 'Order not found'}), 404
     if order.user_id != current_user['id']:
         return jsonify({'error': 'Unauthorized to pay for this order'}), 403
     if order.status == "completed":
         return jsonify({'error': 'Order is already paid for'}), 400
-    if amount != order.total_price:
+    
+    amount = int(order.total_price)
+
+    if amount != order.total_price:  # ✅ Ensure correct amount
         return jsonify({'error': f'Incorrect amount! Order requires {order.total_price}'}), 400
 
     # ✅ Use order's total price
