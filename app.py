@@ -49,10 +49,11 @@ def mpesa_pay():
     data = request.get_json()
 
     phone_number = data.get('phone_number')
+    amount = data.get('amount')
     order_id = data.get('order_id')
 
-    if not phone_number or not order_id:
-        return jsonify({'error': 'Phone number and Order ID are required'}), 400
+    if not all([phone_number, amount, order_id]):
+        return jsonify({'error': 'Phone number, amount, and order ID are required'}), 400
 
     # 🛑 Fetch order & validate
     order = Orders.query.get(order_id)
@@ -62,6 +63,8 @@ def mpesa_pay():
         return jsonify({'error': 'Unauthorized to pay for this order'}), 403
     if order.status == "completed":
         return jsonify({'error': 'Order is already paid for'}), 400
+    if amount != order.total_price:
+        return jsonify({'error': f'Incorrect amount! Order requires {order.total_price}'}), 400
 
     # ✅ Use order's total price
     amount = order.total_price  
