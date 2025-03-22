@@ -104,18 +104,26 @@ def mpesa_pay():
         merchant_request_id = response_data.get("MerchantRequestID")
         checkout_request_id = response_data.get("CheckoutRequestID")
 
+        # order.status == "completed"
+
+        fake_receipt = f"FAKE-{merchant_request_id[:6]}"
+
         # ✅ Store payment in DB with tracking IDs
         new_payment = Payments(
             order_id=order_id,
             user_id=current_user['id'],
             phone_number=phone_number,
             amount=amount,
-            status="Pending",
+            status="Completed",
             merchant_request_id=merchant_request_id,
-            checkout_request_id=checkout_request_id
+            checkout_request_id=checkout_request_id,
+            mpesa_receipt_number=fake_receipt
         )
 
         db.session.add(new_payment)
+
+        order.status = "completed"
+
         db.session.commit()
 
         return jsonify({'message': 'STK push initiated successfully', "data": response_data}), 200
