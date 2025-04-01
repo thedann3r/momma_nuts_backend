@@ -324,7 +324,15 @@ class OrderResource(Resource):
             'user_id': order.user_id,
             'total_price': order.total_price,
             'status': order.status,
-            'items': [{'product_id': item.product_id, 'quantity': item.quantity} for item in order.items]
+                'items': [
+                {
+                    'product_id': item.product_id,
+                    'quantity': item.quantity,
+                    'price': item.price,
+                    'name': item.product.name,  # Include product name
+                    'image': item.product.image  # Include product image
+                } for item in order.items
+            ]
         }
 
     @jwt_required()
