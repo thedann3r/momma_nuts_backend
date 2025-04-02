@@ -192,7 +192,17 @@ class ProductResource(Resource):
                 return {'error': 'Stock must be an integer!'}, 400
 
         db.session.commit()
-        return {'message': 'Product updated successfully!'}, 200
+
+        # ✅ Return the updated product instead of just a message
+        return {
+            'id': product.id,
+            'name': product.name,
+            'description': product.description,
+            'price': product.price,
+            'image': product.image,
+            'stock': product.stock
+        }, 200
+
 
     @jwt_required()
     def delete(self, product_id):
@@ -424,7 +434,7 @@ class Payment(Resource):
     @jwt_required()
     def get(self):
         current_user = get_jwt_identity()
-
+ 
         if current_user['role'] == 'admin':
             payments = Payments.query.all()  # Admins get all payments
         else:

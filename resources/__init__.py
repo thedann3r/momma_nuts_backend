@@ -36,7 +36,7 @@
     "name":"sesame snuggle",
     "price":350,
     "image":"sesame",
-    "description":"filled wth joy",
+    "description":"filled with joy",
     "stock":100
 }
 
