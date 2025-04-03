@@ -376,6 +376,22 @@ class OrderResource(Resource):
         return {'message': 'Order canceled successfully, payment status updated'}, 200
 
 class Payment(Resource):
+
+    @jwt_required()
+    def get(self):
+        current_user = get_jwt_identity()
+
+        if current_user['role'] == 'admin':
+            payments = Payments.query.all()  # Admins get all payments
+        else:
+            payments = Payments.query.filter_by(user_id=current_user['id']).all()
+
+        if not payments:
+            return {'message': 'No payments found'}, 404
+
+        return [payment.to_dict() for payment in payments], 200
+
+    
     # @jwt_required()
     # def post(self):
     #     current_user = get_jwt_identity()
@@ -431,19 +447,6 @@ class Payment(Resource):
     #         }
     #     }, 201
     
-    @jwt_required()
-    def get(self):
-        current_user = get_jwt_identity()
- 
-        if current_user['role'] == 'admin':
-            payments = Payments.query.all()  # Admins get all payments
-        else:
-            payments = Payments.query.filter_by(user_id=current_user['id']).all()
-
-        if not payments:
-            return {'message': 'No payments found'}, 404
-
-        return [payment.serialize() for payment in payments], 200
 
 class Carts(Resource):
     @jwt_required()
@@ -530,7 +533,7 @@ class CartsResource(Resource):
 
                 db.session.delete(cart_item)
                 db.session.commit()
-                return {'message': 'Item removed from cart successfully, stock updated'}, 200
+                return {'message': 'Item removed from cart successfully'}, 200
             except Exception as e:
                 db.session.rollback()
                 return {'error': 'Failed to remove item', 'details': str(e)}, 500
