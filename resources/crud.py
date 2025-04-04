@@ -222,7 +222,6 @@ class ProductResource(Resource):
         db.session.commit()
         return {'message': 'Product deleted successfully!'}, 200
 
-
 class Order(Resource):
     @jwt_required()
     def post(self):

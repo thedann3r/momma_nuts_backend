@@ -38,7 +38,8 @@ class Products(db.Model, SerializerMixin):
     order_items = db.relationship('OrderItems', back_populates='product', lazy=True, cascade="all, delete-orphan")
     cart_items = db.relationship('Cart', back_populates='product', lazy=True, cascade="all, delete-orphan")
 
-    serialize_rules = ('-order_items.product', '-cart_items.product')
+    # serialize_rules = ('-order_items.product', '-cart_items.product')
+    serialize_rules = ('-order_items.product', '-cart_items.product', '-order_items.order')
 
 class Orders(db.Model, SerializerMixin):
     __tablename__ = 'orders'
@@ -89,7 +90,8 @@ class Payments(db.Model, SerializerMixin):
     order = db.relationship('Orders', back_populates='payment')
     user = db.relationship('Users', back_populates='payments')
     
-    serialize_rules = ('-order.payment', '-user.payments')
+    # serialize_rules = ('-order.payment', '-user.payments')
+    serialize_rules = ('-order.payment', '-user.payments', '-order.items', '-order.user')
 
 class Cart(db.Model, SerializerMixin):
     __tablename__ = 'cart'
