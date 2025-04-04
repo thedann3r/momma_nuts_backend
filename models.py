@@ -2,6 +2,7 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy_serializer import SerializerMixin
 from sqlalchemy import UniqueConstraint
 from flask_marshmallow import Marshmallow
+from datetime import datetime
 import datetime
 
 db = SQLAlchemy()
@@ -39,7 +40,7 @@ class Products(db.Model, SerializerMixin):
     cart_items = db.relationship('Cart', back_populates='product', lazy=True, cascade="all, delete-orphan")
 
     # serialize_rules = ('-order_items.product', '-cart_items.product')
-    serialize_rules = ('-order_items.product', '-cart_items.product', '-order_items.order')
+    serialize_rules = ('-order_items.product', '-cart_items.product', '-order_items.order', '-order_items.order.items')
 
 class Orders(db.Model, SerializerMixin):
     __tablename__ = 'orders'
@@ -70,7 +71,7 @@ class OrderItems(db.Model, SerializerMixin):
     order = db.relationship('Orders', back_populates='items')
     product = db.relationship('Products', back_populates='order_items')
     
-    serialize_rules = ('-order.items', '-product.order_items')
+    serialize_rules = ('-order.items', '-order.payment', '-product.order_items',)
 
 class Payments(db.Model, SerializerMixin):
     __tablename__ = 'payments'
@@ -89,9 +90,29 @@ class Payments(db.Model, SerializerMixin):
     #relationships
     order = db.relationship('Orders', back_populates='payment')
     user = db.relationship('Users', back_populates='payments')
-    
-    # serialize_rules = ('-order.payment', '-user.payments')
-    serialize_rules = ('-order.payment', '-user.payments', '-order.items', '-order.user')
+
+    serialize_rules = ('-order.payment', '-user.payments', '-order.items', '-order.user', '-order.items.product')
+
+    def to_dict(self):
+        # Manually convert datetime fields to string (ISO 8601 format)
+        serialized_data = {
+            'id': self.id,
+            'order_id': self.order_id,
+            'user_id': self.user_id,
+            'mpesa_receipt_number': self.mpesa_receipt_number,
+            'phone_number': self.phone_number,
+            'amount': self.amount,
+            'status': self.status,
+            'transaction_date': self.transaction_date.isoformat() if self.transaction_date else None,
+            'checkout_request_id': self.checkout_request_id,
+            'merchant_request_id': self.merchant_request_id
+        }
+        
+        # Convert related models to dict (order, user)
+        serialized_data['order'] = self.order.to_dict() if self.order else None
+        serialized_data['user'] = self.user.to_dict() if self.user else None
+
+        return serialized_data
 
 class Cart(db.Model, SerializerMixin):
     __tablename__ = 'cart'

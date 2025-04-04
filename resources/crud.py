@@ -388,8 +388,24 @@ class Payment(Resource):
         if not payments:
             return {'message': 'No payments found'}, 404
 
-        return [payment.to_dict() for payment in payments], 200
+        # Manually serialize the payment without triggering recursion
+        payment_list = []
+        for payment in payments:
+            payment_dict = {
+                'id': payment.id,
+                'order_id': payment.order_id,
+                'user_id': payment.user_id,
+                'mpesa_receipt_number': payment.mpesa_receipt_number,
+                'phone_number': payment.phone_number,
+                'amount': payment.amount,
+                'status': payment.status,
+                'transaction_date': payment.transaction_date.isoformat() if payment.transaction_date else None,  # Handling datetime conversion
+                'checkout_request_id': payment.checkout_request_id,
+                'merchant_request_id': payment.merchant_request_id
+            }
+            payment_list.append(payment_dict)
 
+        return payment_list, 200
     
     # @jwt_required()
     # def post(self):

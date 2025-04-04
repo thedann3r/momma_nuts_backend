@@ -30,6 +30,17 @@
     "password":"dann1234"
 }
 
+# update profile
+
+{
+  "name": "lorna",
+  "email": "lorna@gmail.com",
+  "phone": "0756892906",
+  "current_password": "denzel1234",
+  "new_password": "lorna1234"
+}
+
+
 # products
 
 {
