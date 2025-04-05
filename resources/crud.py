@@ -89,7 +89,16 @@ class Product(Resource):
         products = Products.query.all()
         if not products:
             return {'error' : 'Products not found'}, 404
-        return [product.to_dict() for product in products]
+        return [
+            {
+                'id': product.id,
+                'name': product.name,
+                'description': product.description,
+                'price': product.price,
+                'image': product.image,
+                'stock': product.stock
+            } for product in products
+        ], 200
     
     @jwt_required()
     def post(self):
@@ -521,14 +530,25 @@ class Carts(Resource):
     def get(self):
         current_user = get_jwt_identity()
 
-        # Fetch cart items for the logged-in user
         cart_items = Cart.query.filter_by(user_id=current_user['id']).all()
 
         if not cart_items:
-            return {'message': 'Your cart is empty'}, 404
+            return {'message': 'Cart is empty'}, 200
 
-        return [item.to_dict() for item in cart_items], 200
-    
+        serialized_cart = []
+        for item in cart_items:
+            serialized_cart.append({
+                'id': item.id,
+                'product_id': item.product_id,
+                'quantity': item.quantity,
+                'product_name': item.product.name,
+                'product_image': item.product.image,
+                'price': item.product.price,
+                # optional: add subtotal per item
+                'subtotal': round(item.product.price * item.quantity, 2)
+            })
+
+        return serialized_cart, 200
 
 class CartsResource(Resource):
     @jwt_required()
@@ -541,11 +561,6 @@ class CartsResource(Resource):
                 return {'error': 'Cart item not found'}, 404
 
             try:
-                # Restore the stock in the products table
-                product = Products.query.get(cart_item.product_id)
-                if product:
-                    product.stock += cart_item.quantity  # Add the quantity back
-
                 db.session.delete(cart_item)
                 db.session.commit()
                 return {'message': 'Item removed from cart successfully'}, 200
@@ -559,17 +574,13 @@ class CartsResource(Resource):
             return {'message': 'Cart is already empty'}, 200
 
         try:
-            for cart_item in user_cart_items:
-                product = Products.query.get(cart_item.product_id)
-                if product:
-                    product.stock += cart_item.quantity  # Restore stock for each item
-
             Cart.query.filter_by(user_id=current_user['id']).delete()
             db.session.commit()
-            return {'message': 'Cart cleared successfully, stock updated'}, 200
+            return {'message': 'Cart cleared successfully'}, 200
         except Exception as e:
             db.session.rollback()
             return {'error': 'Failed to clear cart', 'details': str(e)}, 500
+
 
 
 class Checkout(Resource):
