@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_restful import Resource, Api
-from models import db, Users, Products, Orders, Payments, OrderItems, Cart
+from models import db, Users, Products, Orders, Payments, OrderItems, Cart, Comments, Likes
 from datetime import datetime, timedelta
 # from werkzeug.security import check_password_hash
 from flask_bcrypt import Bcrypt
@@ -659,3 +659,111 @@ class Checkout(Resource):
             'total_price': total_price,
             'order_items': order_items_data
         }, 201
+
+class Comment(Resource):
+    def get (self):
+        comments = Comments.query.all()
+        if not comments:
+            return {"error": "reviews not found"}, 404
+        return [comment.to_dict() for comment in comments]
+    
+    @jwt_required()
+    def post(self):
+        current_user = get_jwt_identity()
+        data = request.get_json()
+
+        if "content" not in data:
+            return {"error": "Missing 'content' field"}, 422
+
+        # Optional parent_id for replies
+        parent_id = data.get("parent_id")
+
+        # Optional validation: Check that the parent exists and is not a reply itself
+        if parent_id:
+            parent_comment = Comments.query.get(parent_id)
+            if not parent_comment:
+                return {"error": "Parent comment not found"}, 404
+            if parent_comment.parent_id is not None:
+                return {"error": "Cannot reply to a reply"}, 400
+
+        new_comment = Comments(
+            content=data["content"],
+            user_id=current_user["id"],
+            parent_id=parent_id,  # Set the parent_id if it's a reply
+            created_at=datetime.utcnow()
+        )
+
+        db.session.add(new_comment)
+        db.session.commit()
+
+        return new_comment.to_dict(), 201
+    
+class CommentResource(Resource):
+    @jwt_required()
+    def delete(self, id):
+        current_user = get_jwt_identity()
+
+        comments = Comments.query.get(id)
+
+        if not comments:
+            return {'message': 'Comment not found!'}, 404
+
+        if current_user['role'] != 'admin' and comments.user_id != current_user['id']:
+            return {'error': 'You are not authorized to delete this comment!'}, 403
+        
+        if not comments:
+            return {'message': 'reviews not found!'}, 404
+        
+        db.session.delete(comments)
+        db.session.commit()
+        return {'message': 'reviews deleted successfully!'}
+    
+class CommentResource(Resource):
+    def get(self, comment_id):
+        comments = Comments.query.get(comment_id)
+
+        if not comments:
+            return {"error": "Comment not found"}, 404
+
+        # Count likes for the comment
+        likes_count = Likes.query.filter_by(comment_id=comment_id).count()
+
+        return {"comment": comments.to_dict(), "likes_count": likes_count}, 200
+    
+class LikeResource(Resource):
+    @jwt_required()
+    def post(self, comment_id):
+        current_user = get_jwt_identity()
+
+        # Check if the user already liked this comment
+        existing_like = Likes.query.filter_by(user_id=current_user['id'], comment_id=comment_id).first()
+        if existing_like:
+            return {"error": "You have already liked this comment"}, 400
+
+        # Add a new like
+        like = Likes(user_id=current_user['id'], comment_id=comment_id)
+        db.session.add(like)
+        db.session.commit()
+
+        return {"message": "Comment liked successfully!"}, 201
+
+    @jwt_required()
+    def delete(self, comment_id):
+        current_user = get_jwt_identity()
+
+        # Check if the user has liked this comment
+        like = Likes.query.filter_by(user_id=current_user['id'], comment_id=comment_id).first()
+        if not like:
+            return {"error": "You have not liked this comment yet"}, 400
+
+        db.session.delete(like)
+        db.session.commit()
+
+        return {"message": "Like removed successfully!"}, 200
+
+    def get(self, comment_id):
+        # Retrieve the like count for the comment
+        likes_count = Likes.query.filter_by(comment_id=comment_id).count()
+
+        return {"likes_count": likes_count}, 200
+

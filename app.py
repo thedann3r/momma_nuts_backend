@@ -12,7 +12,7 @@ import os
 import re
 from models import db, Orders, Payments, Users
 from flask_jwt_extended import JWTManager, create_access_token, create_refresh_token, jwt_required, get_jwt_identity
-from resources.crud import User, Product, Order, OrderResource, Carts, Payment, CartsResource, ProductResource, Checkout
+from resources.crud import User, Product, Order, OrderResource, Carts, Payment, CartsResource, ProductResource, Checkout, Comment, CommentResource, LikeResource
 
 load_dotenv()
 
@@ -338,7 +338,13 @@ api.add_resource(OrderResource, '/orders/<int:order_id>', '/orders')
 api.add_resource(Payment, '/payments') 
 api.add_resource(Carts, '/cart') 
 api.add_resource(CartsResource, '/cart', '/cart/<int:cart_id>')
-api.add_resource(Checkout, '/checkout') 
+api.add_resource(Checkout, '/checkout')
+
+api.add_resource(Comment, '/comments')
+api.add_resource(CommentResource, '/comments/<int:id>')
+api.add_resource(CommentResource, '/comments/<int:comment_id>')
+api.add_resource(LikeResource, '/comments/<int:comment_id>/likes') 
+api.add_resource(LikeResource, '/comments/<int:comment_id>/likes_count')
 
 if __name__ == '__main__':
     app.run(debug=True)

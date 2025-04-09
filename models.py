@@ -144,21 +144,28 @@ class Currency(db.Model, SerializerMixin):
     serialize_rules = ()
 
 class Comments(db.Model):
+    __tablename__ = "comments"
 
     id = db.Column(db.Integer, primary_key=True)
     content = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    parent_id = db.Column(db.Integer, db.ForeignKey("comments.id"), nullable=True)  # For replies
 
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    product_id = db.Column(db.Integer, db.ForeignKey('products.id'), nullable=True)  # or whichever entity comments relate to
+    # Relationships
+    user = db.relationship("Users", back_populates="comments")
+    replies = db.relationship( "Comments", back_populates="parent", cascade="all, delete-orphan")
+    parent = db.relationship( "Comments", remote_side=[id], back_populates="replies")
 
-    parent_id = db.Column(db.Integer, db.ForeignKey('comments.id'), nullable=True)
-
-    user = db.relationship('Users', back_populates='comments')
-    product = db.relationship('Products', back_populates='comments')
-    replies = db.relationship('Comment', back_populates='parent', cascade="all, delete")
-    parent = db.relationship('Comment', remote_side=[id], back_populates='replies')
-    likes = db.relationship('Likes', back_populates='comment', cascade='all, delete')
+    def to_dict(self, rules=()):
+        return {
+            "id": self.id,
+            "content": self.content,
+            "created_at": self.created_at.isoformat(),
+            "user": self.user.to_dict(rules=("-comments",)) if self.user else None,
+            "replies": [reply.to_dict(rules=("-replies", "-user.comments")) for reply in self.replies] if self.replies else [],
+            "parent_id": self.parent_id,
+        }
 
 
 class Likes(db.Model):
@@ -170,6 +177,4 @@ class Likes(db.Model):
     user = db.relationship('Users', back_populates='likes')
     comment = db.relationship('Comments', back_populates='likes')
 
-    __table_args__ = (
-        db.UniqueConstraint('user_id', 'comment_id', name='unique_user_like'),
-    )
+    __table_args__ = (db.UniqueConstraint('user_id', 'comment_id', name='unique_like'),)
