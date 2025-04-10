@@ -3,9 +3,9 @@ from sqlalchemy_serializer import SerializerMixin
 from sqlalchemy import UniqueConstraint
 from flask_marshmallow import Marshmallow
 from datetime import datetime
-import datetime
+# import datetime
 
-db = SQLAlchemy()
+db = SQLAlchemy() 
 ma = Marshmallow()
 
 class Users(db.Model, SerializerMixin):
@@ -25,7 +25,7 @@ class Users(db.Model, SerializerMixin):
     comments = db.relationship('Comments', back_populates='user', cascade="all, delete")
     likes = db.relationship('Likes', back_populates='user', cascade="all, delete")
 
-    serialize_rules = ('-orders.user', '-payments.user', '-cart_items.user', '-password')
+    serialize_rules = ('-orders.user', '-payments.user', '-cart_items.user', '-password', '-comments.user', '-likes.user')
 
 class Products(db.Model, SerializerMixin):
     __tablename__ = 'products'
@@ -43,7 +43,7 @@ class Products(db.Model, SerializerMixin):
     comments = db.relationship('Comments', back_populates='product', cascade="all, delete")
 
     # serialize_rules = ('-order_items.product', '-cart_items.product')
-    serialize_rules = ('-order_items.product', '-cart_items.product', '-order_items.order', '-order_items.order.items')
+    serialize_rules = ('-order_items.product', '-cart_items.product', '-order_items.order', '-order_items.order.items', '-comments.product')
 
 class Orders(db.Model, SerializerMixin):
     __tablename__ = 'orders'
@@ -86,7 +86,7 @@ class Payments(db.Model, SerializerMixin):
     phone_number = db.Column(db.String(15), nullable=False)
     amount = db.Column(db.Float, nullable=False)
     status = db.Column(db.String(20), default="Pending")  # Possible values: Pending, Completed, Failed
-    transaction_date = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    transaction_date = db.Column(db.DateTime, default=datetime.utcnow)
     checkout_request_id = db.Column(db.String(100), unique=True, nullable=True)
     merchant_request_id = db.Column(db.String(100), unique=True, nullable=True)
 
@@ -148,14 +148,15 @@ class Comments(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     content = db.Column(db.Text, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)  # This should now work
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    product = db.relationship("Products", back_populates="comments")
     parent_id = db.Column(db.Integer, db.ForeignKey("comments.id"), nullable=True)  # For replies
 
     # Relationships
     user = db.relationship("Users", back_populates="comments")
-    replies = db.relationship( "Comments", back_populates="parent", cascade="all, delete-orphan")
-    parent = db.relationship( "Comments", remote_side=[id], back_populates="replies")
+    replies = db.relationship("Comments", back_populates="parent", cascade="all, delete-orphan")
+    parent = db.relationship("Comments", remote_side=[id], back_populates="replies")
 
     def to_dict(self, rules=()):
         return {
@@ -164,9 +165,16 @@ class Comments(db.Model):
             "created_at": self.created_at.isoformat(),
             "user": self.user.to_dict(rules=("-comments",)) if self.user else None,
             "replies": [reply.to_dict(rules=("-replies", "-user.comments")) for reply in self.replies] if self.replies else [],
+            "product": self.product.to_dict(rules=("-comments",)) if self.product else None,
             "parent_id": self.parent_id,
         }
 
+    serialize_rules = (
+        '-user.password',  # Exclude sensitive user data
+        '-replies.parent_id',  # Exclude the parent_id of replies to prevent recursion
+        '-user.comments',  # Avoid sending the user's own comments
+        '-product.comments'
+    )
 
 class Likes(db.Model):
 
@@ -178,3 +186,9 @@ class Likes(db.Model):
     comment = db.relationship('Comments', back_populates='likes')
 
     __table_args__ = (db.UniqueConstraint('user_id', 'comment_id', name='unique_like'),)
+
+    serialize_rules = (
+        '-user.password',  # Exclude sensitive user data
+        '-comment.likes',  # Avoid serializing all likes on the comment when not needed
+        '-comment.user.comments',  # Avoid circular reference to user comments
+    )

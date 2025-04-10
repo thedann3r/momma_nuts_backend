@@ -8,11 +8,11 @@ import requests
 import datetime
 import base64
 import json
-import os
+import os 
 import re
 from models import db, Orders, Payments, Users
 from flask_jwt_extended import JWTManager, create_access_token, create_refresh_token, jwt_required, get_jwt_identity
-from resources.crud import User, Product, Order, OrderResource, Carts, Payment, CartsResource, ProductResource, Checkout, Comment, CommentResource, LikeResource
+from resources.crud import User, Product, Order, OrderResource, Carts, Payment, CartsResource, ProductResource, Checkout, Comment, CommentResource, CommentResourceCount, LikeResource, Reply, ReplyResource
 
 load_dotenv()
 
@@ -342,9 +342,11 @@ api.add_resource(Checkout, '/checkout')
 
 api.add_resource(Comment, '/comments')
 api.add_resource(CommentResource, '/comments/<int:id>')
-api.add_resource(CommentResource, '/comments/<int:comment_id>')
+api.add_resource(CommentResourceCount, '/comments/<int:comment_id>')
 api.add_resource(LikeResource, '/comments/<int:comment_id>/likes') 
-api.add_resource(LikeResource, '/comments/<int:comment_id>/likes_count')
+# api.add_resource(LikeResource, '/comments/<int:comment_id>/likes_count')
+api.add_resource(Reply, '/comments/<int:comment_id>/replies')
+api.add_resource(ReplyResource, '/comments/<int:comment_id>/replies/<int:reply_id>')
 
 if __name__ == '__main__':
     app.run(debug=True)

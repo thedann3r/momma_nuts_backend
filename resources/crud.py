@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from flask_bcrypt import Bcrypt
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
-app = Flask(__name__)
+app = Flask(__name__) 
 bcrypt = Bcrypt(app)
 
 class User(Resource):
@@ -661,42 +661,47 @@ class Checkout(Resource):
         }, 201
 
 class Comment(Resource):
-    def get (self):
+    def get(self):
         comments = Comments.query.all()
         if not comments:
-            return {"error": "reviews not found"}, 404
-        return [comment.to_dict() for comment in comments]
+            return {"error": "Reviews not found"}, 404
+        
+        # Add product information to each comment response
+        return [
+            {**comment.to_dict(), "product": comment.product.to_dict()}  # Include the product information
+            for comment in comments
+        ]
     
     @jwt_required()
     def post(self):
         current_user = get_jwt_identity()
         data = request.get_json()
 
-        if "content" not in data:
-            return {"error": "Missing 'content' field"}, 422
+        if "content" not in data or "product_id" not in data:
+            return {"error": "Missing 'content' or 'product_id' field"}, 422
 
-        # Optional parent_id for replies
-        parent_id = data.get("parent_id")
+        # Block replies here
+        if data.get("parent_id") is not None:
+            return {"error": "Use /comments/<comment_id>/replies to post replies"}, 400
 
-        # Optional validation: Check that the parent exists and is not a reply itself
-        if parent_id:
-            parent_comment = Comments.query.get(parent_id)
-            if not parent_comment:
-                return {"error": "Parent comment not found"}, 404
-            if parent_comment.parent_id is not None:
-                return {"error": "Cannot reply to a reply"}, 400
+        # Ensure the product exists
+        product = Products.query.get(data["product_id"])
+        if not product:
+            return {"error": "Product not found"}, 404
 
         new_comment = Comments(
             content=data["content"],
             user_id=current_user["id"],
-            parent_id=parent_id,  # Set the parent_id if it's a reply
+            product_id=data["product_id"],  # Set the product_id to associate the comment with a product
+            parent_id=None,
             created_at=datetime.utcnow()
         )
 
         db.session.add(new_comment)
         db.session.commit()
 
-        return new_comment.to_dict(), 201
+        return {**new_comment.to_dict(), "product": product.to_dict()}, 201
+
     
 class CommentResource(Resource):
     @jwt_required()
@@ -718,7 +723,7 @@ class CommentResource(Resource):
         db.session.commit()
         return {'message': 'reviews deleted successfully!'}
     
-class CommentResource(Resource):
+class CommentResourceCount(Resource):
     def get(self, comment_id):
         comments = Comments.query.get(comment_id)
 
@@ -729,6 +734,87 @@ class CommentResource(Resource):
         likes_count = Likes.query.filter_by(comment_id=comment_id).count()
 
         return {"comment": comments.to_dict(), "likes_count": likes_count}, 200
+    
+class Reply(Resource):
+    
+    @jwt_required()
+    def post(self, comment_id):
+        current_user = get_jwt_identity()
+        data = request.get_json()
+
+        # Check if 'content' is in the request body
+        if "content" not in data:
+            return {"error": "Missing 'content' field"}, 422
+
+        # Get the parent comment
+        parent_comment = Comments.query.get(comment_id)
+        if not parent_comment:
+            return {"error": "Parent comment not found"}, 404
+
+        # Prevent replying to a reply (only root-level comments can have replies)
+        if parent_comment.parent_id is not None:
+            return {"error": "Cannot reply to a reply"}, 400
+
+        # Create a new reply
+        reply = Comments(
+            content=data["content"],
+            user_id=current_user["id"],
+            parent_id=comment_id,
+            created_at=datetime.utcnow()
+        )
+
+        # Commit to the database
+        db.session.add(reply)
+        db.session.commit()
+
+        return reply.to_dict(), 201
+    
+    def get(self, comment_id):
+        # Check if the parent comment exists
+        parent_comment = Comments.query.get(comment_id)
+        if not parent_comment:
+            return {"error": "Parent comment not found"}, 404
+
+        # Prevent fetching replies of a reply
+        if parent_comment.parent_id is not None:
+            return {"error": "Cannot fetch replies of a reply"}, 400
+
+        # Retrieve all direct replies to the parent comment
+        replies = Comments.query.filter_by(parent_id=comment_id).all()
+        if not replies:
+            return {"message": "No replies found for this comment"}, 200
+
+        return [reply.to_dict() for reply in replies], 200
+    
+class ReplyResource(Resource):
+    @jwt_required()
+    def delete(self, comment_id, reply_id):
+        current_user = get_jwt_identity()
+
+        # Find the parent comment
+        parent_comment = Comments.query.get(comment_id)
+        if not parent_comment:
+            return {"error": "Parent comment not found"}, 404
+
+        # Prevent deleting replies to a reply (we only want to delete root-level replies)
+        if parent_comment.parent_id is not None:
+            return {"error": "Cannot delete a reply to a reply"}, 400
+
+        # Find the reply to be deleted
+        reply = Comments.query.get(reply_id)
+        if not reply:
+            return {"error": "Reply not found"}, 404
+
+        # Ensure the reply belongs to the user or the user is an admin
+        if reply.user_id != current_user["id"] and current_user["role"] != "admin":
+            return {"error": "You are not authorized to delete this reply"}, 403
+
+        # Delete the reply from the database
+        db.session.delete(reply)
+        db.session.commit()
+
+        return {"message": "Reply deleted successfully!"}, 200
+
     
 class LikeResource(Resource):
     @jwt_required()
@@ -766,4 +852,3 @@ class LikeResource(Resource):
         likes_count = Likes.query.filter_by(comment_id=comment_id).count()
 
         return {"likes_count": likes_count}, 200
-
