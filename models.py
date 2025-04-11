@@ -18,12 +18,28 @@ class Users(db.Model, SerializerMixin):
     password = db.Column(db.String(100), nullable=False)
     role = db.Column(db.String(50), nullable=False)
 
-    #relationships
     orders = db.relationship('Orders', back_populates='user', lazy=True, cascade="all, delete-orphan")
     payments = db.relationship('Payments', back_populates='user', lazy=True, cascade="all, delete-orphan")
     cart_items = db.relationship('Cart', back_populates='user', lazy=True, cascade="all, delete-orphan")
     comments = db.relationship('Comments', back_populates='user', cascade="all, delete")
     likes = db.relationship('Likes', back_populates='user', cascade="all, delete")
+
+    def to_dict(self, include_comments=True, include_likes=True, include_orders=True, include_payments=True):
+        data = {
+            "id": self.id,
+            "name": self.name,
+            "email": self.email,
+            "role": self.role,
+        }
+        if include_comments:
+            data["comments"] = [comment.to_dict() for comment in self.comments]
+        if include_likes:
+            data["likes"] = [like.to_dict() for like in self.likes]
+        if include_orders:
+            data["orders"] = [order.to_dict() for order in self.orders]
+        if include_payments:
+            data["payments"] = [payment.to_dict() for payment in self.payments]
+        return data
 
     serialize_rules = ('-orders.user', '-payments.user', '-cart_items.user', '-password', '-comments.user', '-likes.user')
 
@@ -34,16 +50,28 @@ class Products(db.Model, SerializerMixin):
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text, nullable=True)
     price = db.Column(db.Float, nullable=False)
-    image = db.Column(db.String(255), nullable=True)  # Store image URLs
+    image = db.Column(db.String(255), nullable=True)
     stock = db.Column(db.Integer, default=0)
 
-    #relationships
     order_items = db.relationship('OrderItems', back_populates='product', lazy=True, cascade="all, delete-orphan")
     cart_items = db.relationship('Cart', back_populates='product', lazy=True, cascade="all, delete-orphan")
     comments = db.relationship('Comments', back_populates='product', cascade="all, delete")
 
+    def to_dict(self, include_comments=True):
+        data = {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "price": self.price,
+            "image": self.image,
+            "stock": self.stock,
+        }
+        if include_comments:
+            data["comments"] = [comment.to_dict() for comment in self.comments]
+        return data
+
     # serialize_rules = ('-order_items.product', '-cart_items.product')
-    serialize_rules = ('-order_items.product', '-cart_items.product', '-order_items.order', '-order_items.order.items', '-comments.product')
+    serialize_rules = ('-order_items.product', '-cart_items.product', '-order_items.order', '-order_items.order.items', '-order_items.order.user.comments', '-comments.product')
 
 class Orders(db.Model, SerializerMixin):
     __tablename__ = 'orders'
@@ -150,40 +178,77 @@ class Comments(db.Model):
     content = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)  # This should now work
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    product = db.relationship("Products", back_populates="comments")
+    product_id = db.Column(db.Integer, db.ForeignKey("products.id"), nullable=True)
     parent_id = db.Column(db.Integer, db.ForeignKey("comments.id"), nullable=True)  # For replies
 
     # Relationships
     user = db.relationship("Users", back_populates="comments")
     replies = db.relationship("Comments", back_populates="parent", cascade="all, delete-orphan")
     parent = db.relationship("Comments", remote_side=[id], back_populates="replies")
+    product = db.relationship("Products", back_populates="comments")
+    likes = db.relationship("Likes", back_populates="comment", cascade="all, delete-orphan")
 
-    def to_dict(self, rules=()):
+    def to_dict(self):
         return {
             "id": self.id,
             "content": self.content,
             "created_at": self.created_at.isoformat(),
-            "user": self.user.to_dict(rules=("-comments",)) if self.user else None,
-            "replies": [reply.to_dict(rules=("-replies", "-user.comments")) for reply in self.replies] if self.replies else [],
-            "product": self.product.to_dict(rules=("-comments",)) if self.product else None,
+            "user": self.user.to_dict(include_comments=False, include_orders=False, include_payments=False) if self.user else None,
+            "replies": [reply.to_dict_without_replies() for reply in self.replies] if self.replies else [],
+            "product": self.product.to_dict(include_comments=False) if self.product else None,
             "parent_id": self.parent_id,
         }
 
+    # Add this helper to safely serialize a reply without nesting its own replies again:
+    def to_dict_without_replies(self):
+        return {
+            "id": self.id,
+            "content": self.content,
+            "created_at": self.created_at.isoformat(),
+            "user": self.user.to_dict(include_comments=False, include_orders=False, include_payments=False) if self.user else None,
+            "product": None,  # Skip product in replies
+            "parent_id": self.parent_id,
+        }
+
+
+    # serialize_rules = (
+    #     '-user.password',  # Exclude sensitive user data
+    #     '-replies.parent_id',  # Exclude the parent_id of replies to prevent recursion
+    #     '-user.comments',  # Avoid sending the user's own comments
+    #     '-product.comments'
+    # )
     serialize_rules = (
-        '-user.password',  # Exclude sensitive user data
-        '-replies.parent_id',  # Exclude the parent_id of replies to prevent recursion
-        '-user.comments',  # Avoid sending the user's own comments
-        '-product.comments'
+        '-user.comments',         # Prevents going from comment → user → user's other comments
+        '-product.comments',      # Prevents going from comment → product → other comments on that product
+        '-replies.parent',        # Prevents replies from including their parent comment again (avoids nesting recursion)
+        '-likes.comment',         # Prevents going from comment → likes → back to comment (recursion loop)
+        '-user.password',         # Security: hides the user's password
     )
 
 class Likes(db.Model):
+    __tablename__ = 'likes'
 
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    comment_id = db.Column(db.Integer, db.ForeignKey('comments.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    comment_id = db.Column(db.Integer, db.ForeignKey("comments.id"), nullable=False)
 
-    user = db.relationship('Users', back_populates='likes')
-    comment = db.relationship('Comments', back_populates='likes')
+    user = db.relationship("Users", back_populates="likes")
+    comment = db.relationship("Comments", back_populates="likes")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user": {
+                "id": self.user.id,
+                "name": self.user.name,
+                "email": self.user.email
+            },
+            "comment": {
+                "id": self.comment.id,
+                "content": self.comment.content,
+                "user_id": self.comment.user_id
+            } if self.comment else None
+        }
 
     __table_args__ = (db.UniqueConstraint('user_id', 'comment_id', name='unique_like'),)
 

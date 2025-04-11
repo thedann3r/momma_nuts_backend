@@ -64,3 +64,17 @@
   "phone_number": "254721434194",
   "order_id": 1
 }
+
+# comments
+
+{
+  "content": "This peanut product is amazing!",
+  "product_id": 1
+}
+
+#replies
+
+{
+  "content": "Totally agree with you!"
+}
+

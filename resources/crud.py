@@ -668,7 +668,10 @@ class Comment(Resource):
         
         # Add product information to each comment response
         return [
-            {**comment.to_dict(), "product": comment.product.to_dict()}  # Include the product information
+            {
+                **comment.to_dict(),
+                "product": comment.product.to_dict() if comment.product else None
+            }
             for comment in comments
         ]
     
@@ -717,11 +720,11 @@ class CommentResource(Resource):
             return {'error': 'You are not authorized to delete this comment!'}, 403
         
         if not comments:
-            return {'message': 'reviews not found!'}, 404
+            return {'message': 'comment not found!'}, 404
         
         db.session.delete(comments)
         db.session.commit()
-        return {'message': 'reviews deleted successfully!'}
+        return {'message': 'comment deleted successfully!'}
     
 class CommentResourceCount(Resource):
     def get(self, comment_id):
@@ -796,7 +799,7 @@ class ReplyResource(Resource):
         if not parent_comment:
             return {"error": "Parent comment not found"}, 404
 
-        # Prevent deleting replies to a reply (we only want to delete root-level replies)
+        # Ensure it's a top-level comment (can't delete replies to replies)
         if parent_comment.parent_id is not None:
             return {"error": "Cannot delete a reply to a reply"}, 400
 
@@ -805,15 +808,24 @@ class ReplyResource(Resource):
         if not reply:
             return {"error": "Reply not found"}, 404
 
-        # Ensure the reply belongs to the user or the user is an admin
+        # 🔒 Ensure the target is a reply, not a top-level comment
+        if reply.parent_id is None:
+            return {"error": "The provided ID is not a reply"}, 400
+
+        # 🔒 Ensure it belongs to the specified parent comment
+        if reply.parent_id != parent_comment.id:
+            return {"error": "Reply does not belong to this comment"}, 400
+
+        # ✅ Authorization check
         if reply.user_id != current_user["id"] and current_user["role"] != "admin":
             return {"error": "You are not authorized to delete this reply"}, 403
 
-        # Delete the reply from the database
+        # ✅ Delete and commit
         db.session.delete(reply)
         db.session.commit()
 
         return {"message": "Reply deleted successfully!"}, 200
+
 
     
 class LikeResource(Resource):
