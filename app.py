@@ -341,7 +341,7 @@ api.add_resource(CartsResource, '/cart', '/cart/<int:cart_id>')
 api.add_resource(Checkout, '/checkout')
 
 api.add_resource(Comment, '/comments')
-api.add_resource(CommentResource, '/comments/<int:id>')
+api.add_resource(CommentResource, '/comments/<int:id>', '/comments/product/<int:product_id>')
 api.add_resource(CommentResourceCount, '/comments/<int:comment_id>')
 api.add_resource(LikeResource, '/comments/<int:comment_id>/likes') 
 # api.add_resource(LikeResource, '/comments/<int:comment_id>/likes_count')

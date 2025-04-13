@@ -711,20 +711,47 @@ class CommentResource(Resource):
     def delete(self, id):
         current_user = get_jwt_identity()
 
-        comments = Comments.query.get(id)
+        comment = Comments.query.get(id)
 
-        if not comments:
+        if not comment:
             return {'message': 'Comment not found!'}, 404
 
-        if current_user['role'] != 'admin' and comments.user_id != current_user['id']:
+        if current_user['role'] != 'admin' and comment.user_id != current_user['id']:
             return {'error': 'You are not authorized to delete this comment!'}, 403
         
-        if not comments:
-            return {'message': 'comment not found!'}, 404
-        
-        db.session.delete(comments)
+        db.session.delete(comment)
         db.session.commit()
-        return {'message': 'comment deleted successfully!'}
+        return {'message': 'Comment deleted successfully!'}
+    
+    def get(self, id=None, product_id=None):
+        if product_id:
+            # Fetch comments for a specific product by product_id
+            comments = Comments.query.filter_by(product_id=product_id).all()
+
+            if not comments:
+                return {"error": "No comments found for this product"}, 404
+
+            return [
+                {
+                    **comment.to_dict(),
+                    "product": comment.product.to_dict() if comment.product else None
+                }
+                for comment in comments
+            ]
+        elif id:
+            # Fetch a specific comment by id
+            comment = Comments.query.get(id)
+
+            if not comment:
+                return {"error": "Comment not found!"}, 404
+
+            return {
+                **comment.to_dict(),
+                "product": comment.product.to_dict() if comment.product else None
+            }
+        
+        return {"error": "Invalid request, product_id or id required"}, 400
+
     
 class CommentResourceCount(Resource):
     def get(self, comment_id):
