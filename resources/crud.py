@@ -886,8 +886,14 @@ class LikeResource(Resource):
 
         return {"message": "Like removed successfully!"}, 200
 
+    @jwt_required()
     def get(self, comment_id):
+        current_user = get_jwt_identity()
+        # Check if the user has liked the comment
+        existing_like = Likes.query.filter_by(user_id=current_user['id'], comment_id=comment_id).first()
+        liked = True if existing_like else False
+        
         # Retrieve the like count for the comment
         likes_count = Likes.query.filter_by(comment_id=comment_id).count()
 
-        return {"likes_count": likes_count}, 200
+        return {"liked": liked, "likes_count": likes_count}, 200

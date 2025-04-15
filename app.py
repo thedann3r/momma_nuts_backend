@@ -346,6 +346,7 @@ api.add_resource(CommentResourceCount, '/comments/<int:comment_id>')
 api.add_resource(LikeResource, '/comments/<int:comment_id>/likes') 
 # api.add_resource(LikeResource, '/comments/<int:comment_id>/likes_count')
 api.add_resource(Reply, '/comments/<int:comment_id>/replies')
+# api.add_resource(Reply, '/replies')
 api.add_resource(ReplyResource, '/comments/<int:comment_id>/replies/<int:reply_id>')
 
 if __name__ == '__main__':
