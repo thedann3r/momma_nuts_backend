@@ -852,8 +852,6 @@ class ReplyResource(Resource):
         db.session.commit()
 
         return {"message": "Reply deleted successfully!"}, 200
-
-
     
 class LikeResource(Resource):
     @jwt_required()
