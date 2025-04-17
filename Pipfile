@@ -28,6 +28,7 @@ python-dotenv = "*"
 gunicorn = "*"
 
 [dev-packages]
+flask-jwt-extended = "*"
 
 [requires]
 python_version = "3.8"
