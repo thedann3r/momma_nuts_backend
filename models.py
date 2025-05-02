@@ -56,6 +56,8 @@ class Products(db.Model, SerializerMixin):
     order_items = db.relationship('OrderItems', back_populates='product', lazy=True, cascade="all, delete-orphan")
     cart_items = db.relationship('Cart', back_populates='product', lazy=True, cascade="all, delete-orphan")
     comments = db.relationship('Comments', back_populates='product', cascade="all, delete")
+    # likes = db.relationship("Likes", back_populates="user", cascade="all, delete")
+    likes = db.relationship("Likes", back_populates="product", cascade="all, delete")
 
     def to_dict(self, include_comments=True):
         data = {
@@ -71,7 +73,7 @@ class Products(db.Model, SerializerMixin):
         return data
 
     # serialize_rules = ('-order_items.product', '-cart_items.product')
-    serialize_rules = ('-order_items.product', '-cart_items.product', '-order_items.order', '-order_items.order.items', '-order_items.order.user.comments', '-comments.product')
+    serialize_rules = ('-order_items.product', '-cart_items.product', '-order_items.order', '-order_items.order.items', '-order_items.order.user.comments', '-comments.product', '-likes.product',)
 
 class Orders(db.Model, SerializerMixin):
     __tablename__ = 'orders'
@@ -186,7 +188,7 @@ class Comments(db.Model):
     replies = db.relationship("Comments", back_populates="parent", cascade="all, delete-orphan")
     parent = db.relationship("Comments", remote_side=[id], back_populates="replies")
     product = db.relationship("Products", back_populates="comments")
-    likes = db.relationship("Likes", back_populates="comment", cascade="all, delete-orphan")
+    # likes = db.relationship("Likes", back_populates="comment", cascade="all, delete-orphan")
 
     def to_dict(self):
         return {
@@ -221,7 +223,7 @@ class Comments(db.Model):
         '-user.comments',         # Prevents going from comment → user → user's other comments
         '-product.comments',      # Prevents going from comment → product → other comments on that product
         '-replies.parent',        # Prevents replies from including their parent comment again (avoids nesting recursion)
-        '-likes.comment',         # Prevents going from comment → likes → back to comment (recursion loop)
+        # '-likes.comment',         # Prevents going from comment → likes → back to comment (recursion loop)
         '-user.password',         # Security: hides the user's password
     )
 
@@ -230,10 +232,10 @@ class Likes(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    comment_id = db.Column(db.Integer, db.ForeignKey("comments.id"), nullable=False)
+    product_id = db.Column(db.Integer, db.ForeignKey("products.id"), nullable=False)
 
     user = db.relationship("Users", back_populates="likes")
-    comment = db.relationship("Comments", back_populates="likes")
+    product = db.relationship("Products", back_populates="likes")
 
     def to_dict(self):
         return {
@@ -243,17 +245,17 @@ class Likes(db.Model):
                 "name": self.user.name,
                 "email": self.user.email
             },
-            "comment": {
-                "id": self.comment.id,
-                "content": self.comment.content,
-                "user_id": self.comment.user_id
-            } if self.comment else None
+            "product": {
+                "id": self.product.id,
+                "name": self.product.name,
+                "description": self.product.description
+            } if self.product else None
         }
 
-    __table_args__ = (db.UniqueConstraint('user_id', 'comment_id', name='unique_like'),)
+    __table_args__ = (db.UniqueConstraint('user_id', 'product_id', name='unique_product_like'),)
 
     serialize_rules = (
-        '-user.password',  # Exclude sensitive user data
-        '-comment.likes',  # Avoid serializing all likes on the comment when not needed
-        '-comment.user.comments',  # Avoid circular reference to user comments
+        '-user.password',
+        '-product.likes',  # Avoid serializing all likes on product
     )
+

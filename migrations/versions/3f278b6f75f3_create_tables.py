@@ -1,8 +1,8 @@
-"""create -tables
+"""create tables
 
-Revision ID: aaaf2f81a003
+Revision ID: 3f278b6f75f3
 Revises: 
-Create Date: 2025-03-23 16:43:54.849124
+Create Date: 2025-04-30 11:00:28.408007
 
 """
 from alembic import op
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = 'aaaf2f81a003'
+revision = '3f278b6f75f3'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -55,6 +55,27 @@ def upgrade():
     sa.ForeignKeyConstraint(['product_id'], ['products.id'], ),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
     sa.PrimaryKeyConstraint('id')
+    )
+    op.create_table('comments',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('content', sa.Text(), nullable=False),
+    sa.Column('created_at', sa.DateTime(), nullable=True),
+    sa.Column('user_id', sa.Integer(), nullable=False),
+    sa.Column('product_id', sa.Integer(), nullable=True),
+    sa.Column('parent_id', sa.Integer(), nullable=True),
+    sa.ForeignKeyConstraint(['parent_id'], ['comments.id'], ),
+    sa.ForeignKeyConstraint(['product_id'], ['products.id'], ),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_table('likes',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('user_id', sa.Integer(), nullable=False),
+    sa.Column('product_id', sa.Integer(), nullable=False),
+    sa.ForeignKeyConstraint(['product_id'], ['products.id'], ),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('user_id', 'product_id', name='unique_product_like')
     )
     op.create_table('orders',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -101,6 +122,8 @@ def downgrade():
     op.drop_table('payments')
     op.drop_table('order_items')
     op.drop_table('orders')
+    op.drop_table('likes')
+    op.drop_table('comments')
     op.drop_table('cart')
     op.drop_table('users')
     op.drop_table('products')

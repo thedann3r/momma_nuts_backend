@@ -855,29 +855,29 @@ class ReplyResource(Resource):
     
 class LikeResource(Resource):
     @jwt_required()
-    def post(self, comment_id):
+    def post(self, product_id):
         current_user = get_jwt_identity()
 
         # Check if the user already liked this comment
-        existing_like = Likes.query.filter_by(user_id=current_user['id'], comment_id=comment_id).first()
+        existing_like = Likes.query.filter_by(user_id=current_user['id'], product_id=product_id).first()
         if existing_like:
-            return {"error": "You have already liked this comment"}, 400
+            return {"error": "You have already liked this product"}, 400
 
         # Add a new like
-        like = Likes(user_id=current_user['id'], comment_id=comment_id)
+        like = Likes(user_id=current_user['id'], product_id=product_id)
         db.session.add(like)
         db.session.commit()
 
-        return {"message": "Comment liked successfully!"}, 201
+        return {"message": "Product liked successfully!"}, 201
 
     @jwt_required()
-    def delete(self, comment_id):
+    def delete(self, product_id):
         current_user = get_jwt_identity()
-
+ 
         # Check if the user has liked this comment
-        like = Likes.query.filter_by(user_id=current_user['id'], comment_id=comment_id).first()
+        like = Likes.query.filter_by(user_id=current_user['id'], product_id=product_id).first()
         if not like:
-            return {"error": "You have not liked this comment yet"}, 400
+            return {"error": "You have not liked this product yet"}, 400
 
         db.session.delete(like)
         db.session.commit()
@@ -885,13 +885,13 @@ class LikeResource(Resource):
         return {"message": "Like removed successfully!"}, 200
 
     @jwt_required()
-    def get(self, comment_id):
+    def get(self, product_id):
         current_user = get_jwt_identity()
         # Check if the user has liked the comment
-        existing_like = Likes.query.filter_by(user_id=current_user['id'], comment_id=comment_id).first()
+        existing_like = Likes.query.filter_by(user_id=current_user['id'], product_id=product_id).first()
         liked = True if existing_like else False
         
         # Retrieve the like count for the comment
-        likes_count = Likes.query.filter_by(comment_id=comment_id).count()
+        likes_count = Likes.query.filter_by(product_id=product_id).count()
 
         return {"liked": liked, "likes_count": likes_count}, 200
