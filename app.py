@@ -12,7 +12,7 @@ import os
 import re
 from models import db, Orders, Payments, Users
 from flask_jwt_extended import JWTManager, create_access_token, create_refresh_token, jwt_required, get_jwt_identity
-from resources.crud import User, Product, Order, OrderResource, Carts, Payment, CartsResource, ProductResource, Checkout, Comment, CommentResource, CommentResourceCount, LikeResource, Reply, ReplyResource
+from resources.crud import User, Product, Order, OrderResource, Carts, Payment, CartsResource, ProductResource, Checkout, Comment, CommentResource, CommentResourceCount, LikeResource, Reply, ReplyResource, MeResource
 
 load_dotenv()
 
@@ -330,6 +330,8 @@ api.add_resource(Login, '/login')
 api.add_resource(Refresh, '/refresh')
 api.add_resource(DeleteAcc, '/delete')
 
+
+api.add_resource(MeResource, '/me')
 api.add_resource(User, '/users')
 api.add_resource(Product, '/products')
 api.add_resource(ProductResource, "/products/<int:product_id>")

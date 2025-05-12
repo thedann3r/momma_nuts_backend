@@ -9,6 +9,23 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 app = Flask(__name__) 
 bcrypt = Bcrypt(app)
 
+class MeResource(Resource):
+    @jwt_required()
+    def get(self):
+        current_user = get_jwt_identity()
+
+        user = Users.query.get(current_user['id'])
+        if not user:
+            return {'error': 'User not found'}, 404
+
+        return {
+            'id': user.id,
+            'name': user.name,
+            'email': user.email,
+            'phone': user.phone,
+            'role': user.role
+        }, 200
+
 class User(Resource):
     @jwt_required()
     def get(self):
