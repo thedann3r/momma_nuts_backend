@@ -5,7 +5,7 @@ from flask_bcrypt import Bcrypt
 from dotenv import load_dotenv
 from flask_cors import CORS
 import requests
-import datetime
+import datetime 
 import base64
 import json
 import os 
@@ -297,6 +297,8 @@ class Login(Resource):
 
         return {'error': 'Incorrect email, phone number or password, please try again!'}, 401
 
+# from datetime import datetime
+
 class DeleteAcc(Resource):
     @jwt_required()
     def delete(self):
@@ -311,12 +313,15 @@ class DeleteAcc(Resource):
             return {'error': 'Unauthorized action!'}, 403
 
         delete_user = Users.query.get(target_user_id)
-        if not delete_user:
-            return {'error': 'The user does not exist!'}, 404
+        if not delete_user or not delete_user.is_active:
+            return {'error': 'The user does not exist or is already deactivated!'}, 404
 
-        db.session.delete(delete_user)
+        delete_user.is_active = False
+        delete_user.deleted_at = datetime.utcnow()  # Add this column to your Users model
         db.session.commit()
-        return {'message': 'The user was deleted successfully!'}, 200
+
+        return {'message': 'The user account has been deactivated successfully!'}, 200
+
     
 class Refresh(Resource):
     @jwt_required(refresh = True)

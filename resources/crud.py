@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from flask_bcrypt import Bcrypt
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
-app = Flask(__name__) 
+app = Flask(__name__)  
 bcrypt = Bcrypt(app)
 
 class MeResource(Resource):
@@ -32,7 +32,7 @@ class User(Resource):
         current_user = get_jwt_identity()
 
         if current_user['role'] == 'admin':
-            users = Users.query.all()
+            users = Users.query.filter_by(deleted_at=None).all()  # Exclude soft-deleted users
             return [{
                 'id': user.id,
                 'name': user.name,
@@ -42,7 +42,7 @@ class User(Resource):
             } for user in users], 200
 
         # Normal users can only fetch their own profile
-        user = Users.query.get(current_user['id'])
+        user = Users.query.filter_by(id=current_user['id'], deleted_at=None).first()
         if not user:
             return {'error': 'User not found'}, 404
 
@@ -103,9 +103,9 @@ class User(Resource):
     
 class Product(Resource):
     def get(self):
-        products = Products.query.all()
+        products = Products.query.filter_by(deleted_at=None).all()  # Exclude soft-deleted
         if not products:
-            return {'error' : 'Products not found'}, 404
+            return {'error': 'Products not found'}, 404
         return [
             {
                 'id': product.id,
@@ -229,24 +229,21 @@ class ProductResource(Resource):
             'stock': product.stock
         }, 200
 
-
     @jwt_required()
     def delete(self, product_id):
         current_user = get_jwt_identity()
 
-        # Ensure only admins can delete products
         if current_user['role'] != 'admin':
             return {'error': 'Only admins can delete products!'}, 403
 
-        # Find the product
         product = Products.query.get(product_id)
         if not product:
             return {'error': 'Product not found!'}, 404
 
-        # Delete product
-        db.session.delete(product)
+        # Perform soft delete
+        product.deleted_at = datetime.datetime.utcnow()
         db.session.commit()
-        return {'message': 'Product deleted successfully!'}, 200
+        return {'message': 'Product soft deleted successfully!'}, 200
 
 class Order(Resource):
     @jwt_required()
@@ -679,11 +676,10 @@ class Checkout(Resource):
 
 class Comment(Resource):
     def get(self):
-        comments = Comments.query.all()
+        comments = Comments.query.filter(Comments.deleted_at.is_(None)).all()
         if not comments:
             return {"error": "Reviews not found"}, 404
         
-        # Add product information to each comment response
         return [
             {
                 **comment.to_dict(),
@@ -730,20 +726,19 @@ class CommentResource(Resource):
 
         comment = Comments.query.get(id)
 
-        if not comment:
+        if not comment or comment.deleted_at is not None:
             return {'message': 'Comment not found!'}, 404
 
         if current_user['role'] != 'admin' and comment.user_id != current_user['id']:
             return {'error': 'You are not authorized to delete this comment!'}, 403
-        
-        db.session.delete(comment)
+
+        comment.deleted_at = datetime.utcnow()
         db.session.commit()
-        return {'message': 'Comment deleted successfully!'}
+        return {'message': 'Comment deleted successfully!'}, 200
     
     def get(self, id=None, product_id=None):
         if product_id:
-            # Fetch comments for a specific product by product_id
-            comments = Comments.query.filter_by(product_id=product_id).all()
+            comments = Comments.query.filter_by(product_id=product_id).filter(Comments.deleted_at.is_(None)).all()
 
             if not comments:
                 return {"error": "No comments found for this product"}, 404
@@ -755,9 +750,9 @@ class CommentResource(Resource):
                 }
                 for comment in comments
             ]
+
         elif id:
-            # Fetch a specific comment by id
-            comment = Comments.query.get(id)
+            comment = Comments.query.filter_by(id=id).filter(Comments.deleted_at.is_(None)).first()
 
             if not comment:
                 return {"error": "Comment not found!"}, 404
@@ -766,21 +761,19 @@ class CommentResource(Resource):
                 **comment.to_dict(),
                 "product": comment.product.to_dict() if comment.product else None
             }
-        
-        return {"error": "Invalid request, product_id or id required"}, 400
 
+        return {"error": "Invalid request, product_id or id required"}, 400
     
 class CommentResourceCount(Resource):
     def get(self, comment_id):
-        comments = Comments.query.get(comment_id)
+        comment = Comments.query.filter_by(id=comment_id).filter(Comments.deleted_at.is_(None)).first()
 
-        if not comments:
+        if not comment:
             return {"error": "Comment not found"}, 404
 
-        # Count likes for the comment
         likes_count = Likes.query.filter_by(comment_id=comment_id).count()
 
-        return {"comment": comments.to_dict(), "likes_count": likes_count}, 200
+        return {"comment": comment.to_dict(), "likes_count": likes_count}, 200
     
 class Reply(Resource):
     
@@ -817,17 +810,14 @@ class Reply(Resource):
         return reply.to_dict(), 201
     
     def get(self, comment_id):
-        # Check if the parent comment exists
-        parent_comment = Comments.query.get(comment_id)
+        parent_comment = Comments.query.filter_by(id=comment_id).filter(Comments.deleted_at.is_(None)).first()
         if not parent_comment:
             return {"error": "Parent comment not found"}, 404
 
-        # Prevent fetching replies of a reply
         if parent_comment.parent_id is not None:
             return {"error": "Cannot fetch replies of a reply"}, 400
 
-        # Retrieve all direct replies to the parent comment
-        replies = Comments.query.filter_by(parent_id=comment_id).all()
+        replies = Comments.query.filter_by(parent_id=comment_id).filter(Comments.deleted_at.is_(None)).all()
         if not replies:
             return {"message": "No replies found for this comment"}, 200
 
@@ -838,34 +828,28 @@ class ReplyResource(Resource):
     def delete(self, comment_id, reply_id):
         current_user = get_jwt_identity()
 
-        # Find the parent comment
         parent_comment = Comments.query.get(comment_id)
-        if not parent_comment:
+        if not parent_comment or parent_comment.deleted_at is not None:
             return {"error": "Parent comment not found"}, 404
 
-        # Ensure it's a top-level comment (can't delete replies to replies)
         if parent_comment.parent_id is not None:
             return {"error": "Cannot delete a reply to a reply"}, 400
 
-        # Find the reply to be deleted
         reply = Comments.query.get(reply_id)
-        if not reply:
+        if not reply or reply.deleted_at is not None:
             return {"error": "Reply not found"}, 404
 
-        # 🔒 Ensure the target is a reply, not a top-level comment
         if reply.parent_id is None:
             return {"error": "The provided ID is not a reply"}, 400
 
-        # 🔒 Ensure it belongs to the specified parent comment
         if reply.parent_id != parent_comment.id:
             return {"error": "Reply does not belong to this comment"}, 400
 
-        # ✅ Authorization check
         if reply.user_id != current_user["id"] and current_user["role"] != "admin":
             return {"error": "You are not authorized to delete this reply"}, 403
 
-        # ✅ Delete and commit
-        db.session.delete(reply)
+        # ✅ Soft delete
+        reply.deleted_at = datetime.utcnow()
         db.session.commit()
 
         return {"message": "Reply deleted successfully!"}, 200

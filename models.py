@@ -5,7 +5,7 @@ from flask_marshmallow import Marshmallow
 from datetime import datetime
 # import datetime
 
-db = SQLAlchemy() 
+db = SQLAlchemy()   
 ma = Marshmallow()
 
 class Users(db.Model, SerializerMixin):
@@ -17,9 +17,13 @@ class Users(db.Model, SerializerMixin):
     phone = db.Column(db.String(100), unique=True, nullable=False)
     password = db.Column(db.String(100), nullable=False)
     role = db.Column(db.String(50), nullable=False)
+    is_active = db.Column(db.Boolean, default=True)
+    deleted_at = db.Column(db.DateTime, nullable=True)
 
-    orders = db.relationship('Orders', back_populates='user', lazy=True, cascade="all, delete-orphan")
-    payments = db.relationship('Payments', back_populates='user', lazy=True, cascade="all, delete-orphan")
+    # orders = db.relationship('Orders', back_populates='user', lazy=True, cascade="all, delete-orphan")
+    # payments = db.relationship('Payments', back_populates='user', lazy=True, cascade="all, delete-orphan")
+    orders = db.relationship('Orders', back_populates='user', lazy=True)
+    payments = db.relationship('Payments', back_populates='user', lazy=True)
     cart_items = db.relationship('Cart', back_populates='user', lazy=True, cascade="all, delete-orphan")
     comments = db.relationship('Comments', back_populates='user', cascade="all, delete")
     likes = db.relationship('Likes', back_populates='user', cascade="all, delete")
@@ -52,8 +56,10 @@ class Products(db.Model, SerializerMixin):
     price = db.Column(db.Float, nullable=False)
     image = db.Column(db.String(255), nullable=True)
     stock = db.Column(db.Integer, default=0)
+    deleted_at = db.Column(db.DateTime, nullable=True)
 
-    order_items = db.relationship('OrderItems', back_populates='product', lazy=True, cascade="all, delete-orphan")
+    # order_items = db.relationship('OrderItems', back_populates='product', lazy=True, cascade="all, delete-orphan")
+    order_items = db.relationship('OrderItems', back_populates='product', lazy=True)
     cart_items = db.relationship('Cart', back_populates='product', lazy=True, cascade="all, delete-orphan")
     comments = db.relationship('Comments', back_populates='product', cascade="all, delete")
     # likes = db.relationship("Likes", back_populates="user", cascade="all, delete")
@@ -79,7 +85,8 @@ class Orders(db.Model, SerializerMixin):
     __tablename__ = 'orders'
 
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    # user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete="SET NULL"), nullable=True)
     total_price = db.Column(db.Float, nullable=False)
     status = db.Column(db.String(50), default='pending')  # pending, completed, canceled
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
@@ -111,7 +118,8 @@ class Payments(db.Model, SerializerMixin):
 
     id = db.Column(db.Integer, primary_key=True)
     order_id = db.Column(db.Integer, db.ForeignKey('orders.id'), nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    # user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete="SET NULL"), nullable=True)
     mpesa_receipt_number = db.Column(db.String(50), unique=True, nullable=True)
     phone_number = db.Column(db.String(15), nullable=False)
     amount = db.Column(db.Float, nullable=False)
@@ -179,9 +187,11 @@ class Comments(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     content = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)  # This should now work
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    # user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     product_id = db.Column(db.Integer, db.ForeignKey("products.id"), nullable=True)
     parent_id = db.Column(db.Integer, db.ForeignKey("comments.id"), nullable=True)  # For replies
+    deleted_at = db.Column(db.DateTime, nullable=True)
 
     # Relationships
     user = db.relationship("Users", back_populates="comments")
@@ -231,7 +241,8 @@ class Likes(db.Model):
     __tablename__ = 'likes'
 
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    # user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     product_id = db.Column(db.Integer, db.ForeignKey("products.id"), nullable=False)
 
     user = db.relationship("Users", back_populates="likes")
