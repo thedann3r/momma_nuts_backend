@@ -231,10 +231,10 @@ class Signup(Resource):
         if email and not is_valid_email(email):
             return {'error': 'Invalid email format!'}, 400
 
-        if email and Users.query.filter_by(email=email).first():
+        if email and Users.query.filter(Users.email == email, Users.is_active == True).first():
             return {'error': 'Email already exists!'}, 400
 
-        if phone and Users.query.filter_by(phone=phone).first():
+        if phone and Users.query.filter(Users.phone == phone, Users.is_active == True).first():
             return {'error': 'Phone number already exists!'}, 400
 
         if not is_strong_password(password):
@@ -271,31 +271,35 @@ class Login(Resource):
         password = data.get('password')
 
         if not identifier or not password:
-            return {'error': 'Please use either email or Phone number and password!'}, 400
-        
+            return {'error': 'Please use either email or phone number and password!'}, 400
+
         if "@" in identifier and identifier.isdigit():
             return {'error': 'Enter either email or phone number, not both!'}, 400
 
-        user = Users.query.filter((Users.email == identifier) | (Users.phone == identifier)).first()
+        # Only fetch users who are active and not soft deleted
+        user = Users.query.filter(
+            ((Users.email == identifier) | (Users.phone == identifier)) & 
+            (Users.is_active == True) & 
+            (Users.deleted_at == None)
+        ).first()
 
         if user and bcrypt.check_password_hash(user.password, password):
-            create_token = create_access_token(identity={'id': user.id, 'name': user.name, 'email': user.email, 'phone': user.phone, 'role': user.role})
-            refresh_token = create_refresh_token(identity={'id': user.id, 'name': user.name, 'email': user.email, 'phone': user.phone, 'role': user.role})
+            user_data = {
+                'id': user.id,
+                'name': user.name,
+                'email': user.email,
+                'phone': user.phone,
+                'role': user.role
+            }
 
             return {
-                'create_token': create_token,
-                'refresh_token': refresh_token,
+                'create_token': create_access_token(identity=user_data),
+                'refresh_token': create_refresh_token(identity=user_data),
                 'role': user.role,
-                'user': {
-                    'id': user.id,
-                    'name': user.name,
-                    'email': user.email,
-                    'phone': user.phone,
-                    'role': user.role
-                }
+                'user': user_data
             }, 200
 
-        return {'error': 'Incorrect email, phone number or password, please try again!'}, 401
+        return {'error': 'Incorrect email, phone number, password, or account is deactivated!'}, 401
 
 # from datetime import datetime
 
@@ -317,11 +321,13 @@ class DeleteAcc(Resource):
             return {'error': 'The user does not exist or is already deactivated!'}, 404
 
         delete_user.is_active = False
-        delete_user.deleted_at = datetime.utcnow()  # Add this column to your Users model
+        delete_user.deleted_at = datetime.datetime.utcnow()
+        delete_user.email = f"deleted_{delete_user.id}_{delete_user.email}"
+        delete_user.phone = f"deleted_{delete_user.id}_{delete_user.phone}"
+
         db.session.commit()
 
         return {'message': 'The user account has been deactivated successfully!'}, 200
-
     
 class Refresh(Resource):
     @jwt_required(refresh = True)
