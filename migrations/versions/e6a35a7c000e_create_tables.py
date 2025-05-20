@@ -1,8 +1,8 @@
-"""create tables with soft delete
+"""create tables
 
-Revision ID: b0611a4c1735
+Revision ID: e6a35a7c000e
 Revises: 
-Create Date: 2025-05-19 11:03:57.367771
+Create Date: 2025-05-20 12:55:11.145225
 
 """
 from alembic import op
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = 'b0611a4c1735'
+revision = 'e6a35a7c000e'
 down_revision = None
 branch_labels = None
 depends_on = None

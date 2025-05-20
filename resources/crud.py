@@ -148,7 +148,7 @@ class Product(Resource):
             return {'error': 'Price must be greater than zero'}, 400
 
         # Check if product name already exists
-        existing_product = Products.query.filter_by(name=name).first()
+        existing_product = Products.query.filter_by(name=name).filter(Products.deleted_at == None).first()
         if existing_product:
             return {'error': 'A product with this name already exists'}, 400
 
@@ -241,7 +241,7 @@ class ProductResource(Resource):
             return {'error': 'Product not found!'}, 404
 
         # Perform soft delete
-        product.deleted_at = datetime.datetime.utcnow()
+        product.deleted_at = datetime.utcnow()
         db.session.commit()
         return {'message': 'Product soft deleted successfully!'}, 200
 
@@ -503,9 +503,9 @@ class Carts(Resource):
                 return {'error': 'Product ID is required'}, 400
 
             # Fetch product and validate availability
-            product = Products.query.get(product_id)
+            product = Products.query.filter_by(id=product_id, deleted_at=None).first()
             if not product:
-                return {'error': 'Product not found'}, 404
+                return {'error': 'Product not found or has been removed'}, 404
 
             if product.stock < quantity:
                 return {'error': f'Only {product.stock} items available in stock'}, 400
