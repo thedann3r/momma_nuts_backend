@@ -701,9 +701,9 @@ class Comment(Resource):
             return {"error": "Use /comments/<comment_id>/replies to post replies"}, 400
 
         # Ensure the product exists
-        product = Products.query.get(data["product_id"])
+        product = Products.query.filter_by(id=data["product_id"], deleted_at=None).first()
         if not product:
-            return {"error": "Product not found"}, 404
+            return {"error": "Product not found or has been deleted"}, 404
 
         new_comment = Comments(
             content=data["content"],
@@ -787,9 +787,9 @@ class Reply(Resource):
             return {"error": "Missing 'content' field"}, 422
 
         # Get the parent comment
-        parent_comment = Comments.query.get(comment_id)
+        parent_comment = Comments.query.filter_by(id=comment_id, deleted_at=None).first()
         if not parent_comment:
-            return {"error": "Parent comment not found"}, 404
+            return {"error": "Parent comment not found or has been deleted"}, 404
 
         # Prevent replying to a reply (only root-level comments can have replies)
         if parent_comment.parent_id is not None:
@@ -859,12 +859,15 @@ class LikeResource(Resource):
     def post(self, product_id):
         current_user = get_jwt_identity()
 
-        # Check if the user already liked this comment
+        # ✅ Block likes on soft-deleted products
+        product = Products.query.filter_by(id=product_id, deleted_at=None).first()
+        if not product:
+            return {"error": "Product not found or has been deleted"}, 404
+
         existing_like = Likes.query.filter_by(user_id=current_user['id'], product_id=product_id).first()
         if existing_like:
             return {"error": "You have already liked this product"}, 400
 
-        # Add a new like
         like = Likes(user_id=current_user['id'], product_id=product_id)
         db.session.add(like)
         db.session.commit()
@@ -874,8 +877,12 @@ class LikeResource(Resource):
     @jwt_required()
     def delete(self, product_id):
         current_user = get_jwt_identity()
- 
-        # Check if the user has liked this comment
+
+        # ✅ Block unliking soft-deleted products
+        product = Products.query.filter_by(id=product_id, deleted_at=None).first()
+        if not product:
+            return {"error": "Product not found or has been deleted"}, 404
+
         like = Likes.query.filter_by(user_id=current_user['id'], product_id=product_id).first()
         if not like:
             return {"error": "You have not liked this product yet"}, 400
@@ -888,11 +895,10 @@ class LikeResource(Resource):
     @jwt_required()
     def get(self, product_id):
         current_user = get_jwt_identity()
-        # Check if the user has liked the comment
+
         existing_like = Likes.query.filter_by(user_id=current_user['id'], product_id=product_id).first()
         liked = True if existing_like else False
-        
-        # Retrieve the like count for the comment
+
         likes_count = Likes.query.filter_by(product_id=product_id).count()
 
         return {"liked": liked, "likes_count": likes_count}, 200
