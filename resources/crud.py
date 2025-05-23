@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_restful import Resource, Api
+from email_utils import send_order_confirmation_email
 from models import db, Users, Products, Orders, Payments, OrderItems, Cart, Comments, Likes
 from datetime import datetime, timedelta
 # from werkzeug.security import check_password_hash
@@ -666,6 +667,11 @@ class Checkout(Resource):
         Cart.query.filter_by(user_id=user_id).delete()
 
         db.session.commit()
+
+        # Send order confirmation email after commit
+
+        if current_user.get('email'):
+            send_order_confirmation_email(current_user['email'], new_order.id)
 
         return {
             'message': 'Order created successfully, proceed to payment.',

@@ -4,6 +4,8 @@ from flask_migrate import Migrate
 from flask_bcrypt import Bcrypt
 from dotenv import load_dotenv
 from flask_cors import CORS
+from flask_mail import Mail, Message
+from email_utils import send_welcome_email
 import requests
 import datetime 
 import base64
@@ -215,6 +217,16 @@ def is_valid_email(email):
 def is_strong_password(password):
     return bool(re.match(r"^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d@$!%*?&]{8,}$", password))
 
+# Mail config
+app.config['MAIL_SERVER'] = 'smtp.gmail.com'  # For Gmail
+app.config['MAIL_PORT'] = 587
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USERNAME'] = os.getenv('EMAIL_USER')  # Use .env or hardcode for now
+app.config['MAIL_PASSWORD'] = os.getenv('EMAIL_PASS')  # Use app password if using Gmail
+app.config['MAIL_DEFAULT_SENDER'] = os.getenv('EMAIL_USER')
+
+mail = Mail(app)
+
 class Signup(Resource):
     def post(self):
         data = request.get_json()
@@ -249,6 +261,10 @@ class Signup(Resource):
         db.session.add(new_user)
         db.session.commit()
 
+        # ✅ Send welcome email if email is provided
+        if new_user.email:
+            send_welcome_email(new_user.email, new_user.name)
+
         create_token = create_access_token(identity={'id': new_user.id, 'name': new_user.name, 'email': new_user.email, 'phone': new_user.phone, 'role': new_user.role})
 
         return {
@@ -262,7 +278,6 @@ class Signup(Resource):
                 'role': new_user.role
             }
         }, 201
-
 
 class Login(Resource):
     def post(self):
@@ -299,7 +314,8 @@ class Login(Resource):
                 'user': user_data
             }, 200
 
-        return {'error': 'Incorrect email, phone number, password, or account is deactivated!'}, 401
+        # return {'error': 'Incorrect email, phone number, password, or account is deactivated!'}, 401
+        return {'error': 'Invalid credentials!'}, 401
 
 # from datetime import datetime
 
