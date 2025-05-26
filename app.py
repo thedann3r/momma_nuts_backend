@@ -355,14 +355,11 @@ class Refresh(Resource):
         return{'access_token':new_access_token}, 201
     
 class ForgotPassword(Resource):
+    @jwt_required()
     def post(self):
-        data = request.get_json()
-        email = data.get('email')
+        current_user = get_jwt_identity()
 
-        if not email:
-            return {'error': 'Email is required'}, 400
-
-        user = Users.query.filter_by(email=email, is_active=True).first()
+        user = Users.query.filter_by(id=current_user['id'], is_active=True).first()
 
         if not user:
             return {'error': 'User not found'}, 404
@@ -371,7 +368,6 @@ class ForgotPassword(Resource):
         expires = datetime.timedelta(minutes=15)
         reset_token = create_access_token(identity={'id': user.id, 'email': user.email}, expires_delta=expires)
 
-        # Your frontend URL for resetting password (or create a route if using a backend-only approach)
         reset_link = f"http://localhost:5173/reset-password?token={reset_token}"
 
         send_password_reset_email(user.email, reset_link)
@@ -435,7 +431,6 @@ api.add_resource(ReplyResource, '/comments/<int:comment_id>/replies/<int:reply_i
 api.add_resource(LikeResource, '/products/<int:product_id>/likes') 
 # api.add_resource(LikeResource, '/comments/<int:comment_id>/likes_count')
 # api.add_resource(Reply, '/replies')
-
 
 api.add_resource(ForgotPassword, '/forgot-password')
 api.add_resource(ResetPassword, '/reset-password')
