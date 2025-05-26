@@ -5,7 +5,9 @@ from flask_bcrypt import Bcrypt
 from dotenv import load_dotenv
 from flask_cors import CORS
 from flask_mail import Mail, Message
-from email_utils import send_welcome_email
+from email_utils import send_welcome_email, send_password_reset_email
+from werkzeug.security import generate_password_hash
+# from flask_jwt_extended import decode_token
 import requests
 import datetime 
 import base64
@@ -13,7 +15,7 @@ import json
 import os 
 import re
 from models import db, Orders, Payments, Users
-from flask_jwt_extended import JWTManager, create_access_token, create_refresh_token, jwt_required, get_jwt_identity
+from flask_jwt_extended import JWTManager, create_access_token, create_refresh_token, jwt_required, get_jwt_identity, decode_token
 from resources.crud import User, Product, Order, OrderResource, Carts, Payment, CartsResource, ProductResource, Checkout, Comment, CommentResource, CommentResourceCount, LikeResource, Reply, ReplyResource, MeResource
 
 load_dotenv()
@@ -352,6 +354,62 @@ class Refresh(Resource):
         new_access_token = create_refresh_token(identity = current_user)
         return{'access_token':new_access_token}, 201
     
+class ForgotPassword(Resource):
+    def post(self):
+        data = request.get_json()
+        email = data.get('email')
+
+        if not email:
+            return {'error': 'Email is required'}, 400
+
+        user = Users.query.filter_by(email=email, is_active=True).first()
+
+        if not user:
+            return {'error': 'User not found'}, 404
+
+        # Create a short-lived token (e.g., 15 min)
+        expires = datetime.timedelta(minutes=15)
+        reset_token = create_access_token(identity={'id': user.id, 'email': user.email}, expires_delta=expires)
+
+        # Your frontend URL for resetting password (or create a route if using a backend-only approach)
+        reset_link = f"http://localhost:5173/reset-password?token={reset_token}"
+
+        send_password_reset_email(user.email, reset_link)
+
+        return {'message': 'Password reset link sent to your email.'}, 200
+    
+class ResetPassword(Resource):
+    def post(self):
+        data = request.get_json()
+        token = data.get('token')
+        new_password = data.get('new_password')
+        confirm_password = data.get('confirm_password')
+
+        if not token or not new_password or not confirm_password:
+            return {'error': 'All fields are required.'}, 400
+
+        if new_password != confirm_password:
+            return {'error': 'Passwords do not match.'}, 400
+
+        if len(new_password) < 8 or not any(c.isalpha() for c in new_password) or not any(c.isdigit() for c in new_password):
+            return {'error': 'Password must be at least 8 characters and contain letters and numbers.'}, 400
+
+        try:
+            decoded = decode_token(token)
+            user_id = decoded['sub']['id']
+            user = Users.query.get(user_id)
+
+            if not user or not user.is_active:
+                return {'error': 'User not found or inactive'}, 404
+
+            user.password = generate_password_hash(new_password).decode('utf-8')
+            db.session.commit()
+
+            return {'message': 'Password has been reset successfully.'}, 200
+
+        except Exception as e:
+            return {'error': 'Invalid or expired token'}, 400
+    
 api.add_resource(Signup, '/signup')
 api.add_resource(Login, '/login')
 api.add_resource(Refresh, '/refresh')
@@ -377,6 +435,10 @@ api.add_resource(ReplyResource, '/comments/<int:comment_id>/replies/<int:reply_i
 api.add_resource(LikeResource, '/products/<int:product_id>/likes') 
 # api.add_resource(LikeResource, '/comments/<int:comment_id>/likes_count')
 # api.add_resource(Reply, '/replies')
+
+
+api.add_resource(ForgotPassword, '/forgot-password')
+api.add_resource(ResetPassword, '/reset-password')
 
 if __name__ == '__main__':
     app.run(debug=True)
