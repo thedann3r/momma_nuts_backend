@@ -355,25 +355,31 @@ class Refresh(Resource):
         return{'access_token':new_access_token}, 201
     
 class ForgotPassword(Resource):
-    @jwt_required()
     def post(self):
-        current_user = get_jwt_identity()
+        data = request.get_json()
+        email = data.get('email')
 
-        user = Users.query.filter_by(id=current_user['id'], is_active=True).first()
+        if not email:
+            return {'error': 'Email is required'}, 400
+
+        user = Users.query.filter_by(email=email, is_active=True).first()
 
         if not user:
-            return {'error': 'User not found'}, 404
+            return {'error': 'User with that email not found or inactive'}, 404
 
-        # Create a short-lived token (e.g., 15 min)
+        # Create a short-lived token (15 minutes)
         expires = datetime.timedelta(minutes=15)
-        reset_token = create_access_token(identity={'id': user.id, 'email': user.email}, expires_delta=expires)
+        reset_token = create_access_token(
+            identity={'id': user.id, 'email': user.email},
+            expires_delta=expires
+        )
 
         reset_link = f"http://localhost:5173/reset-password?token={reset_token}"
 
         send_password_reset_email(user.email, reset_link)
 
         return {'message': 'Password reset link sent to your email.'}, 200
-    
+
 class ResetPassword(Resource):
     def post(self):
         data = request.get_json()
