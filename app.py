@@ -16,6 +16,7 @@ import os
 import re
 from models import db, Orders, Payments, Users
 from flask_jwt_extended import JWTManager, create_access_token, create_refresh_token, jwt_required, get_jwt_identity, decode_token
+from jwt import ExpiredSignatureError, InvalidTokenError, decode
 from resources.crud import User, Product, Order, OrderResource, Carts, Payment, CartsResource, ProductResource, Checkout, Comment, CommentResource, CommentResourceCount, LikeResource, Reply, ReplyResource, MeResource
 
 load_dotenv()
@@ -380,6 +381,38 @@ class ForgotPassword(Resource):
 
         return {'message': 'Password reset link sent to your email.'}, 200
 
+# class ResetPassword(Resource):
+#     def post(self):
+#         data = request.get_json()
+#         token = data.get('token')
+#         new_password = data.get('new_password')
+#         confirm_password = data.get('confirm_password')
+
+#         if not token or not new_password or not confirm_password:
+#             return {'error': 'All fields are required.'}, 400
+
+#         if new_password != confirm_password:
+#             return {'error': 'Passwords do not match.'}, 400
+
+#         if len(new_password) < 8 or not any(c.isalpha() for c in new_password) or not any(c.isdigit() for c in new_password):
+#             return {'error': 'Password must be at least 8 characters and contain letters and numbers.'}, 400
+
+#         try:
+#             decoded = decode_token(token)
+#             user_id = decoded['sub']['id']
+#             user = Users.query.get(user_id)
+
+#             if not user or not user.is_active:
+#                 return {'error': 'User not found or inactive'}, 404
+
+#             user.password = generate_password_hash(new_password).decode('utf-8')
+#             db.session.commit()
+
+#             return {'message': 'Password has been reset successfully.'}, 200
+
+#         except Exception as e:
+#             return {'error': 'Invalid or expired token'}, 400
+        
 class ResetPassword(Resource):
     def post(self):
         data = request.get_json()
@@ -387,36 +420,39 @@ class ResetPassword(Resource):
         new_password = data.get('new_password')
         confirm_password = data.get('confirm_password')
 
-        if not token or not new_password or not confirm_password:
-            return {'error': 'All fields are required.'}, 400
-
-        if new_password != confirm_password:
-            return {'error': 'Passwords do not match.'}, 400
-
-        if len(new_password) < 8 or not any(c.isalpha() for c in new_password) or not any(c.isdigit() for c in new_password):
-            return {'error': 'Password must be at least 8 characters and contain letters and numbers.'}, 400
+        if not all([token, new_password, confirm_password]):
+            return {"error": "Missing data"}, 400
 
         try:
-            decoded = decode_token(token)
-            user_id = decoded['sub']['id']
-            user = Users.query.get(user_id)
+            payload = decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
+            print("Decoded token payload:", payload)  # Optional debug
+            user_id = payload['sub']['id']  # ← FIXED here
+            user = db.session.get(Users, user_id)
 
-            if not user or not user.is_active:
-                return {'error': 'User not found or inactive'}, 404
+            if not user:
+                return {"error": "User not found"}, 400
 
-            user.password = generate_password_hash(new_password).decode('utf-8')
+            if new_password != confirm_password:
+                return {"error": "Passwords do not match"}, 400
+
+            hashed_password = bcrypt.generate_password_hash(new_password).decode('utf-8')
+            user.password = hashed_password
             db.session.commit()
 
-            return {'message': 'Password has been reset successfully.'}, 200
+            return {"message": "Password reset successful"}, 200
 
+        except ExpiredSignatureError:
+            return {"error": "Token has expired"}, 400
+        except InvalidTokenError:
+            return {"error": "Invalid token"}, 400
         except Exception as e:
-            return {'error': 'Invalid or expired token'}, 400
+            print("Reset error:", e)
+            return {"error": "Something went wrong"}, 500
     
 api.add_resource(Signup, '/signup')
 api.add_resource(Login, '/login')
 api.add_resource(Refresh, '/refresh')
 api.add_resource(DeleteAcc, '/delete')
-
 
 api.add_resource(MeResource, '/me')
 api.add_resource(User, '/users')
